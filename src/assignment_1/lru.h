@@ -3,10 +3,12 @@
 //
 #ifndef FRAMEWORK_LRU_H
 #define FRAMEWORK_LRU_H
+
 #include "systemc"
 #include <string>
 #include <iomanip>
 #include <iostream>
+
 using namespace std;
 
 static const size_t BLOCK_SIZE = 32; // 32 Bytes.
@@ -19,8 +21,8 @@ struct LRUnit {
     uint8_t index;
     uint64_t tag;
     uint8_t data[BLOCK_SIZE];
-    LRUnit* next;
-    LRUnit* prev;
+    LRUnit *next;
+    LRUnit *prev;
 };
 
 class LRU {
@@ -36,15 +38,13 @@ public:
 
     uint32_t read(uint64_t tag);
 
-    LRUnit* head;
-    LRUnit* tail;
-    LRUnit* lines;
+    LRUnit *head;
+    LRUnit *tail;
+    LRUnit *lines;
     uint8_t lru_index;
 
 private:
-    void push2head(LRUnit* curr) {
-        cout << sc_core::sc_time_stamp() << " write cache back to the cache line" << endl;
-        sc_core::wait(1); // write cache back to the cache line.
+    void push2head(LRUnit *curr) {
         if (this->head == nullptr && this->tail == nullptr) {
             // Initialization.
             this->head = curr;
@@ -80,8 +80,8 @@ private:
         this->head = curr;
     };
 
-    LRUnit* find(uint64_t tag) const {
-        LRUnit* curr = this->head;
+    LRUnit *find(uint64_t tag) const {
+        LRUnit *curr = this->head;
         while (curr != nullptr) {
             if (curr->tag == tag) {
                 return curr;
@@ -104,6 +104,6 @@ private:
     uint8_t capacity;
 };
 
-std::ostream& operator<<(std::ostream &out, LRU & data);
+std::ostream &operator<<(std::ostream &out, LRU &data);
 
 #endif //FRAMEWORK_LRU_H

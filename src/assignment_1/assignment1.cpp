@@ -27,61 +27,78 @@ typedef struct Set {
 } Set;
 
 class CacheLines {
-    public:
-        CacheLines() {
-            this->sets = new Set[NR_SETS];
-            for (uint8_t i = 0; i < NR_SETS; i++) {
-                this->sets[i].lru = new LRU(SET_SIZE, i);
-            }
+public:
+    CacheLines() {
+        this->sets = new Set[NR_SETS];
+        for (uint8_t i = 0; i < NR_SETS; i++) {
+            this->sets[i].lru = new LRU(SET_SIZE, i);
         }
+    }
 
-        uint8_t read(uint64_t addr) const {
-            // Return true if there is a cache.
-            // 32kB / (32 * 8) Byte = 128 sets.
-            // address is 64 bits.
-            // The cache line is 32 bytes lone, so we need 5 bits to represent it.
-            cout << endl << sc_time_stamp() << " [READ]: CPU sends writes to: 0x" << setfill('0') << setw(16) << right << std::hex << addr << endl;
-            uint64_t set_i = (addr >> 5) % NR_SETS;
-            uint64_t tag = (addr >> 5) / NR_SETS;
-            cout << "set index: " << to_string(set_i) << " tag: 0x" << setfill('0') << setw(13) << right << hex << tag << endl;
-            Set *set = &this->sets[set_i];
-            LRU* lru = set->lru;
+    uint8_t read(uint64_t addr) const {
+        // Return true if there is a cache.
+        // 32kB / (32 * 8) Byte = 128 sets.
+        // address is 64 bits.
+        // The cache line is 32 bytes lone, so we need 5 bits to represent it.
+        cout << endl << sc_time_stamp()
+             << " [READ]: CPU sends writes to: 0x"
+             << setfill('0') << setw(16) << right << std::hex << addr << endl;
 
-            cout << "Init state for " << to_string(set_i) << "th cache line:" << endl;
-            cout << *lru;
+        uint64_t set_i = (addr >> 5) % NR_SETS;
+        uint64_t tag = (addr >> 5) / NR_SETS;
 
-            lru->read(tag);
-            cout << sc_time_stamp() << " [READ END]" << endl;
-            return 0;
-        }
+        cout << "set index: "
+             << to_string(set_i)
+             << " tag: 0x" << setfill('0') << setw(13) << right << hex << tag << endl;
 
-        void store(uint64_t addr, uint32_t data) const {
-            // default 4 bytes data.
-            cout << endl << sc_time_stamp() << " [WRITE]: CPU sends writes to: 0x" << setfill('0') << setw(16) << right << std::hex << addr << endl;
-            uint64_t set_i = (addr >> 5) % NR_SETS;
-            uint64_t tag = (addr >> 5) / NR_SETS;
-            cout << sc_time_stamp() << " Write data: " << to_string(data) << endl;
-            // size_t offset = (addr & 0b11111);
-            cout << "set index: " << to_string(set_i) << " tag: 0x" << setfill('0') << setw(13) << right << hex << tag << endl;
+        Set *set = &this->sets[set_i];
+        LRU *lru = set->lru;
 
-            // Get the set based on the addr.
-            Set *set = &this->sets[set_i];
-            LRU* lru = set->lru;
-            cout << "Init state for " << to_string(set_i) << "th cache line:" << endl;
-            cout << *lru;
+        cout << "Init state for " << to_string(set_i) << "th cache line:" << endl;
+        cout << *lru;
 
-            lru->write(tag, 0);
-            cout << sc_time_stamp() << " [WRITE END]" << endl;
-        }
+        lru->read(tag);
+        cout << sc_time_stamp() << " [READ END]" << endl;
+        return 0;
+    }
 
-        Set *sets;
+    void store(uint64_t addr, uint32_t data) const {
+        // default 4 bytes data.
+        cout << endl << sc_time_stamp()
+             << " [WRITE]: CPU sends writes to: 0x"
+             << setfill('0') << setw(16) << right << std::hex << addr << endl;
+
+        uint64_t set_i = (addr >> 5) % NR_SETS;
+        uint64_t tag = (addr >> 5) / NR_SETS;
+
+        cout << sc_time_stamp() << " Write data: " << to_string(data) << endl;
+        // size_t offset = (addr & 0b11111);
+        cout << "set index: " << to_string(set_i)
+             << " tag: 0x" << setfill('0') << setw(13) << right << hex << tag << endl;
+
+        // Get the set based on the addr.
+        Set *set = &this->sets[set_i];
+        LRU *lru = set->lru;
+
+        cout << "Init state for " << to_string(set_i) << "th cache line:" << endl;
+        cout << *lru;
+
+        lru->write(tag, 0);
+        cout << sc_time_stamp() << " [WRITE END]" << endl;
+    }
+
+    Set *sets;
 };
 
 SC_MODULE(Cache) {
-    public:
-    enum Function { FUNC_READ, FUNC_WRITE };
+public:
+    enum Function {
+        FUNC_READ, FUNC_WRITE
+    };
 
-    enum RetCode { RET_READ_DONE, RET_WRITE_DONE };
+    enum RetCode {
+        RET_READ_DONE, RET_WRITE_DONE
+    };
 
     sc_in<bool> Port_CLK;
     sc_in<Function> Port_Func;
@@ -101,7 +118,7 @@ SC_MODULE(Cache) {
         delete cache;
     }
 
-    private:
+private:
     CacheLines *cache;
 
     void execute() {
@@ -117,6 +134,7 @@ SC_MODULE(Cache) {
 
             if (f == FUNC_READ) {
                 cache->read(addr);
+                // get the whole cache line out, use the offset to get the 4 bytes.
                 Port_Data.write(100);
                 Port_Done.write(RET_READ_DONE);
                 wait();
@@ -130,7 +148,7 @@ SC_MODULE(Cache) {
 };
 
 SC_MODULE(CPU) {
-    public:
+public:
     sc_in<bool> Port_CLK;
     sc_in<Cache::RetCode> Port_MemDone;
     sc_out<Cache::Function> Port_MemFunc;
@@ -143,7 +161,7 @@ SC_MODULE(CPU) {
         dont_initialize();
     }
 
-    private:
+private:
     void execute() {
         TraceFile::Entry tr_data;
         Cache::Function f;
@@ -165,7 +183,8 @@ SC_MODULE(CPU) {
                     f = Cache::FUNC_WRITE;
                     break;
 
-                case TraceFile::ENTRY_TYPE_NOP: break;
+                case TraceFile::ENTRY_TYPE_NOP:
+                    break;
 
                 default:
                     cerr << "Error, got invalid data from Trace" << endl;
@@ -173,23 +192,10 @@ SC_MODULE(CPU) {
             }
 
             if (tr_data.type != TraceFile::ENTRY_TYPE_NOP) {
-                /*
-                tr_data.addr = addr;
-
-                uint8_t j = rand() % 2;
-                uint8_t step = rand() % 6;
-                if (j) {
-                    addr += 4096 * step;
-                } else {
-                    addr -= 4096 * step;
-                }
-                */
-
                 Port_MemAddr.write(tr_data.addr);
                 Port_MemFunc.write(f);
 
                 if (f == Cache::FUNC_WRITE) {
-
                     // We write the address as the data value.
                     Port_MemData.write(tr_data.addr);
                     wait();
@@ -214,7 +220,6 @@ SC_MODULE(CPU) {
         sc_stop();
     }
 };
-
 
 int sc_main(int argc, char *argv[]) {
     try {
