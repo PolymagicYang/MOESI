@@ -41,7 +41,7 @@ public:
         // address is 64 bits.
         // The cache line is 32 bytes lone, so we need 5 bits to represent it.
         cout << endl << sc_time_stamp()
-             << " [READ]: CPU sends writes to: 0x"
+             << " [READ]: Manager sends writes to: 0x"
              << setfill('0') << setw(16) << right << std::hex << addr << endl;
 
         uint64_t set_i = (addr >> 5) % NR_SETS;
@@ -65,7 +65,7 @@ public:
     void store(uint64_t addr, uint32_t data) const {
         // default 4 bytes data.
         cout << endl << sc_time_stamp()
-             << " [WRITE]: CPU sends writes to: 0x"
+             << " [WRITE]: Manager sends writes to: 0x"
              << setfill('0') << setw(16) << right << std::hex << addr << endl;
 
         uint64_t set_i = (addr >> 5) % NR_SETS;
@@ -147,7 +147,7 @@ private:
     }
 };
 
-SC_MODULE(CPU) {
+SC_MODULE(Manager) {
 public:
     sc_in<bool> Port_CLK;
     sc_in<Cache::RetCode> Port_MemDone;
@@ -155,7 +155,7 @@ public:
     sc_out<uint64_t> Port_MemAddr;
     sc_inout_rv<64> Port_MemData;
 
-    SC_CTOR(CPU) {
+    SC_CTOR(Manager) {
         SC_THREAD(execute);
         sensitive << Port_CLK.pos();
         dont_initialize();
@@ -170,7 +170,7 @@ private:
         while (!tracefile_ptr->eof()) {
             // Get the next action for the processor in the trace
             if (!tracefile_ptr->next(0, tr_data)) {
-                cerr << "Error reading trace for CPU" << endl;
+                cerr << "Error reading trace for Manager" << endl;
                 break;
             }
 
@@ -207,10 +207,10 @@ private:
 
                 if (f == Cache::FUNC_READ) {
                     cout << sc_time_stamp()
-                         << ": CPU reads: " << Port_MemData.read() << endl << endl;
+                         << ": Manager reads: " << Port_MemData.read() << endl << endl;
                 }
             } else {
-                cout << sc_time_stamp() << ": CPU executes NOP" << endl;
+                cout << sc_time_stamp() << ": Manager executes NOP" << endl;
             }
             // Advance one cycle in simulated time
             wait();
@@ -232,7 +232,7 @@ int sc_main(int argc, char *argv[]) {
 
         // Instantiate Modules
         Cache mem("main_memory");
-        CPU cpu("cpu");
+        Manager cpu("cpu");
 
         // Signals
         sc_buffer<Cache::Function> sigMemFunc;
@@ -240,7 +240,7 @@ int sc_main(int argc, char *argv[]) {
         sc_signal<uint64_t> sigMemAddr;
         sc_signal_rv<64> sigMemData;
 
-        // The clock that will drive the CPU and Cache
+        // The clock that will drive the Manager and Cache
         sc_clock clk;
 
         // Connecting module ports with signals

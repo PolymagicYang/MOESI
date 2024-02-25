@@ -15,6 +15,7 @@ LRU::LRU(uint8_t capacity, uint8_t lru_index) {
         this->lines[i].prev = nullptr;
         this->lines[i].status = cache_status::invalid;
         this->lines[i].tag = 0;
+        this->lines[i].index = i;
     }
 
     this->lru_index = lru_index;
@@ -49,7 +50,7 @@ std::ostream &operator<<(std::ostream &out, LRU &data) {
     return out;
 }
 
-op_type LRU::read(uint64_t tag) {
+op_type LRU::read(uint64_t tag, uint32_t id) {
     LRUnit *curr = this->find(tag);
     op_type event;
 
@@ -63,12 +64,12 @@ op_type LRU::read(uint64_t tag) {
              << " [READ HIT] on " << to_string(curr->index) << "th cache line with tag: 0x"
              << setfill('0') << setw(13) << right << hex << tag << endl;
 
-        stats_readhit(0);
+        stats_readhit(id);
         this->push2head(curr);
     } else {
         // cache miss.
         event = op_type::read_miss;
-        stats_readmiss(0);
+        stats_readmiss(id);
         cout << sc_time_stamp() << " read data from memory" << endl;
 
         cout << sc_core::sc_time_stamp()
@@ -90,11 +91,15 @@ op_type LRU::read(uint64_t tag) {
 
             this->push2head(curr);
         } else {
+            curr = this->get_clean_node();
+            if (curr == nullptr) {
+                cout << "[ERROR]: find nullptr when get clean node." << endl;
+                return op_type::read_miss;
+            }
+
             // append a new cache line.
-            this->lines[this->size].tag = tag;
-            this->lines[this->size].status = cache_status::valid;
-            this->lines[this->size].index = this->size;
-            curr = &this->lines[this->size];
+            curr->tag = tag;
+            curr->status = cache_status::valid;
 
             cout << sc_core::sc_time_stamp()
                  << " insert new cache line with "
@@ -111,7 +116,7 @@ op_type LRU::read(uint64_t tag) {
     return event;
 }
 
-op_type LRU::write(uint64_t tag, uint32_t) {
+op_type LRU::write(uint64_t tag, uint32_t, uint32_t id) {
     LRUnit *curr = this->find(tag);
     op_type event;
 
@@ -122,14 +127,14 @@ op_type LRU::write(uint64_t tag, uint32_t) {
              << setfill('0') << setw(13) << right << hex << tag << endl;
 
         // cache hits.
-        stats_writehit(0);
+        stats_writehit(id);
         cout << sc_core::sc_time_stamp() << " mark " << to_string(curr->index) << "th cache line as dirty" << endl;
         curr->status = cache_status::valid;
         this->push2head(curr);
     } else {
         // cache miss.
         event = op_type::write_miss;
-        stats_writemiss(0);
+        stats_writemiss(id);
 
         cout << sc_core::sc_time_stamp()
              << " [WRITE MISS] tag: 0x"
@@ -155,12 +160,15 @@ op_type LRU::write(uint64_t tag, uint32_t) {
 
             this->push2head(curr);
         } else {
-            this->lines[this->size].tag = tag;
             // store data.
-            this->lines[this->size].status = cache_status::valid;
-            this->lines[this->size].index = this->size;
 
-            curr = &this->lines[this->size];
+            curr = this->get_clean_node();
+            if (curr == nullptr) {
+                cout << "[ERROR]: find nullptr when get clean node." << endl;
+                return op_type::write_miss;
+            }
+            curr->tag = tag;
+            curr->status = cache_status::valid;
 
             cout << sc_core::sc_time_stamp()
                  << " insert new cache line with "
@@ -182,6 +190,9 @@ void LRU::transition(cache_status target, uint64_t tag) {
 
     if (curr) {
         curr->status = target;
+        if (target == cache_status::invalid) {
+            this->invalid(curr);
+        }
     }
 }
 

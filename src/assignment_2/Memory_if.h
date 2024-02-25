@@ -7,7 +7,7 @@
 #ifndef FRAMEWORK_MEMORY_IF_H
 #define FRAMEWORK_MEMORY_IF_H
 
-/* NOTE: This interface is implemented by the cache. The CPU uses it to talk
+/* NOTE: This interface is implemented by the cache. The Manager uses it to talk
  * to the cache. */
 class Memory_if: public virtual sc_interface {
 public:

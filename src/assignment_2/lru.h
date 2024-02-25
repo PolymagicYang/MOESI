@@ -35,9 +35,9 @@ public:
 
     ~LRU() { delete this->lines; };
 
-    op_type write(uint64_t tag, uint32_t _data);
+    op_type write(uint64_t tag, uint32_t _data, uint32_t);
 
-    op_type read(uint64_t tag);
+    op_type read(uint64_t tag, uint32_t);
 
     void transition(cache_status target, uint64_t tag);
 
@@ -85,6 +85,40 @@ private:
         this->head = curr;
     };
 
+    void invalid(LRUnit* curr) {
+        if (curr == nullptr) return;
+
+        curr->status = cache_status::invalid;
+        this->size -= 1;
+
+        if (this->head == this->tail && this->tail == curr && this->head == curr) {
+            // len is 1.
+            this->head = nullptr;
+            this->tail = nullptr;
+        } else if (this->head == curr && curr->next != nullptr) {
+            // curr is the first one.
+            this->head = curr->next;
+            this->head->prev = nullptr;
+        } else if (this->tail == curr && curr->prev != nullptr) {
+            // curr is the last one.
+            this->tail = curr->prev;
+            this->tail->next = nullptr;
+        } else {
+            if (curr->prev != nullptr) {
+                // disconnect this node.
+                curr->prev->next = curr->next;
+            }
+            if (curr->next != nullptr) {
+                // disconnect this node.
+                curr->next->prev = curr->prev;
+            }
+        }
+
+        // disconnect the adjacent nodes.
+        curr->prev = nullptr;
+        curr->next = nullptr;
+    };
+
     LRUnit *find(uint64_t tag) const {
         LRUnit *curr = this->head;
         while (curr != nullptr) {
@@ -103,6 +137,15 @@ private:
 
     bool is_full() const {
         return this->size == this->capacity;
+    };
+
+    LRUnit* get_clean_node() const {
+        for (uint8_t i = 0; i < this->capacity; i++) {
+            if (this->lines[i].status == cache_status::invalid) {
+                return &this->lines[i];
+            }
+        }
+        return nullptr;
     };
 
     uint8_t size;

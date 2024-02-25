@@ -14,6 +14,7 @@ LRU::LRU(uint8_t capacity, uint8_t lru_index) {
         this->lines[i].next = nullptr;
         this->lines[i].prev = nullptr;
         this->lines[i].dirty = false;
+        this->lines[i].valid = false;
         this->lines[i].tag = 0;
     }
 
@@ -35,7 +36,7 @@ std::ostream &operator<<(std::ostream &out, LRU &data) {
         uint8_t index = curr->index;
         out << "[ | no." << to_string(index) << " | dirty: ";
 
-        out << to_string(curr->dirty) << " | tag: ";
+        out << to_string(curr->dirty) << "| valid: " << to_string(curr->valid) << " | tag: ";
         out << "0x" << setfill('0') << setw(13) << right << hex
             << curr->tag; // I need 13 hex to represent (64 - (7 + 5)) bits.
         out << " | ] ";
@@ -87,6 +88,7 @@ uint32_t LRU::read(uint64_t tag) {
 
             curr->tag = tag;
             curr->dirty = false;
+            curr->valid = true;
             cout << sc_core::sc_time_stamp()
                  << " update cache line with tag: 0x"
                  << setfill('0') << setw(13) << right << hex << curr->tag
@@ -97,6 +99,7 @@ uint32_t LRU::read(uint64_t tag) {
             // append a new cache line.
             this->lines[this->size].tag = tag;
             this->lines[this->size].dirty = false;
+            this->lines[this->size].valid = true;
             this->lines[this->size].index = this->size;
             curr = &this->lines[this->size];
 
@@ -129,6 +132,7 @@ void LRU::write(uint64_t tag, uint32_t _data) {
         stats_writehit(0);
         cout << sc_core::sc_time_stamp() << " mark " << to_string(curr->index) << "th cache line as dirty" << endl;
         curr->dirty = true;
+        curr->valid = true;
         this->push2head(curr);
     } else {
         // cache miss.
@@ -158,6 +162,7 @@ void LRU::write(uint64_t tag, uint32_t _data) {
             }
             curr->tag = tag;
             curr->dirty = true;
+            curr->valid = true;
 
             cout << sc_core::sc_time_stamp()
                  << " update cache line with tag: 0x"
@@ -170,6 +175,7 @@ void LRU::write(uint64_t tag, uint32_t _data) {
             this->lines[this->size].tag = tag;
             // store data.
             this->lines[this->size].dirty = true;
+            this->lines[this->size].valid = true;
             this->lines[this->size].index = this->size;
 
             curr = &this->lines[this->size];

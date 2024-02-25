@@ -12,7 +12,6 @@
 class Memory : public Memory_if, public sc_module {
     public:
     sc_port<bus_if> bus;
-    sc_in<request*> Port_Mem;
     sc_in_clk clk;
 
     Memory(sc_module_name name_) : sc_module(name_) {
@@ -25,37 +24,42 @@ class Memory : public Memory_if, public sc_module {
 
     ~Memory() override {
         // nothing to do here right now.
-        delete this->requests;
     }
 
     int read(request req) override {
-        this->requests->push_back(req);
+        this->requests.push_back(req);
         return 0;
     }
 
     int write(request req) override {
-        this->requests->push_back(req);
+        this->requests.push_back(req);
         return 0;
     }
 
     void execute() {
         while (true) {
             // Pop the first request.
-            for (auto req : *this->requests) {
-                request response;
-                response.cpu_id = req.cpu_id;
-                response.addr = req.addr;
-                response.source = location::memory;
-                response.op = req.op;
+            if (!this->requests.empty()) {
+                auto req = this->requests.front();
+                this->requests.erase(this->requests.begin());
 
-                wait(100); // One memory access consumes 100 cycles.
-                this->bus->try_request(response);
+                if (req.source != location::memory) {
+                    request response;
+                    response.cpu_id = req.cpu_id;
+                    response.addr = req.addr;
+                    response.source = location::memory;
+                    response.destination = location::cache;
+                    response.op = req.op;
+
+                    wait(100); // One memory access consumes 100 cycles.
+                    this->bus->try_request(response);
+                }
             }
-            wait();
+            sc_core::wait(1);
         }
     }
 
 private:
-    vector<request>* requests = new vector<request>;
+    vector<request> requests = vector<request>();
 };
 #endif

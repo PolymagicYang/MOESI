@@ -33,7 +33,6 @@ public:
 
     sc_port<bus_if> bus_port;
     sc_in<request> Port_Cache; // single producer multiple consumer (bus <-> many caches).
-    sc_out<RetCode> output;
 
     // cpu_cache interface methods.
     int cpu_read(uint64_t addr) override;
@@ -57,66 +56,43 @@ private:
     op_type event;
     Set *sets;
 
-    /* cpu_cache_if interface method
-     * Called by CPU.
-     */
-    op_type cpu_write(uint64_t addr) const {
-        uint64_t set_i = (addr >> 5) % NR_SETS;
-        uint64_t tag = (addr >> 5) / NR_SETS;
+    request probe() const {
+        sc_core::wait(); // cache is sensitive with the sc_in signal.
 
-        Set *set = &this->sets[set_i];
-        LRU *lru = set->lru;
+        auto req = this->Port_Cache.read();
+        cout << req;
+        if (req.cpu_id != this->id) {
+            // Probe the actions from the other caches.
+            uint64_t addr = req.addr;
+            uint64_t set_i = (addr >> 5) % NR_SETS;
+            uint64_t tag = (addr >> 5) / NR_SETS;
 
-        // cout << "Init state for " << to_string(set_i) << "th cache line:" << endl;
-        // cout << *lru;
-        return lru->write(tag, 0);
-    }
+            Set *set = &this->sets[set_i];
+            LRU *lru = set->lru;
+            cache_status curr_status;
 
-    bool probe(request *result) const {
-        // return true if there is new request comes in.
-        bool req_exists = this->Port_Cache.event();
-        if (req_exists) {
-            auto req = this->Port_Cache.read();
-            if (req.cpu_id != this->id) {
-                // Probe the actions from the other caches.
-                uint64_t addr = req.addr;
-                uint64_t set_i = (addr >> 5) % NR_SETS;
-                uint64_t tag = (addr >> 5) / NR_SETS;
-
-                Set *set = &this->sets[set_i];
-                LRU *lru = set->lru;
-                cache_status curr_status;
-
-                if (lru->get_status(tag, &curr_status)) {
-                    // Ignore the probe if there is no cache line locally.
-                    if (req.op == op_type::write_hit && curr_status == cache_status::valid) {
-                        // Probe write hit.
-                        lru->transition(cache_status::invalid, tag);
-                    }
-                    if (req.op == op_type::read_hit && curr_status == cache_status::valid) {
-                        lru->transition(cache_status::valid, tag);
-                    }
+            if (lru->get_status(tag, &curr_status)) {
+                // Ignore the probe if there is no cache line locally.
+                if (req.op == op_type::write_hit && curr_status == cache_status::valid) {
+                    // Probe write hit.
+                    lru->transition(cache_status::invalid, tag);
+                }
+                if (req.op == op_type::read_hit && curr_status == cache_status::valid) {
+                    lru->transition(cache_status::valid, tag);
                 }
             }
-            *result = req;
-            return true;
         }
-        return false;
+        return req;
     }
 
     void broadcast(request req) {
         this->bus_port->try_request(req);
-        while (true) {
-            // wait until receive the same request.
-            wait(this->Port_Cache.value_changed_event());
 
-            request ret;
-            this->probe(&ret);
+        while (true) {
+            request ret = this->probe();
+
             // req can't be the nullptr because of the wait fn.
-            if (ret.cpu_id == this->id) {
-                if (ret.source == memory) {
-                    cout << endl << "[ERROR]: Receive unprocessed memory response" << endl;
-                }
+            if (ret.cpu_id == this->id && ret.source == location::cache) {
                 break;
             }
         }
@@ -124,17 +100,15 @@ private:
 
     void wait_mem() {
         while (true) {
-            wait(this->Port_Cache.value_changed_event());
+            request ret = this->probe();
 
-            request ret;
-            this->probe(&ret);
+            cout << ret;
             // req can't be the nullptr because of the wait fn.
-            if (ret.cpu_id == this->id) {
-                if (ret.source == cache) {
-                    cout << endl << "[ERROR]: Receive unprocessed cache response" << endl;
-                }
+            if (ret.cpu_id == this->id && ret.source == location::memory) {
+                cout << "break";
                 break;
             }
+            wait();
         }
     }
 };

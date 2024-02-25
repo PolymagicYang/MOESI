@@ -18,6 +18,7 @@ using namespace sc_core;
 
 struct LRUnit {
     bool dirty;
+    bool valid;
     uint8_t index;
     uint64_t tag;
     uint8_t data[BLOCK_SIZE];

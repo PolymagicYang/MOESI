@@ -9,7 +9,8 @@
 enum location {
     // source type
     memory = 0,
-    cache = 1
+    cache = 1,
+    all = 2,
 };
 
 enum op_type {
@@ -22,7 +23,7 @@ enum op_type {
 typedef struct request {
     uint8_t cpu_id; // cpu no.
     enum location source;
-    // enum location destination;
+    enum location destination;
     enum op_type op;
     uint64_t addr;
 
@@ -35,23 +36,18 @@ typedef struct request {
     }
 
     bool operator==(const request& rhs) {
-        return this->cpu_id == rhs.cpu_id && source == rhs.source && op == rhs.op && addr == rhs.addr;
+        return cpu_id == rhs.cpu_id && source == rhs.source && op == rhs.op && addr == rhs.addr && rhs.destination == destination;
     }
 } request;
 
-std::ostream& operator<<(std::ostream& os, const request& val) {
-    os << "cpu: " << val.cpu_id <<  std::endl;
-    os << "addr: " << val.addr<<  std::endl;
-    os << "source: " << val.source <<  std::endl;
-    os << "op: " << val.op <<  std::endl;
-    return os;
-}
+std::ostream& operator<<(std::ostream& os, const request& val);
 
 inline void sc_trace(sc_trace_file*& f, const request& val, const std::string& name) {
     sc_trace(f, val.cpu_id, name + ".cpu");
     sc_trace(f, val.addr, name + ".addr");
     sc_trace(f, val.op, name + ".op");
     sc_trace(f, val.source, name + ".source");
+    sc_trace(f, val.destination, name + ".destination");
 }
 
 enum cache_status {

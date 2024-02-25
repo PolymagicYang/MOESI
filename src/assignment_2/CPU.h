@@ -1,5 +1,9 @@
-#ifndef CPU_H
-#define CPU_H
+//
+// Created by yanghoo on 2/25/24.
+//
+
+#ifndef FRAMEWORK_CPU_H
+#define FRAMEWORK_CPU_H
 
 #include <iostream>
 #include <systemc.h>
@@ -8,11 +12,15 @@
 #include "helpers.h"
 #include "psa.h"
 #include "types.h"
+#include "cpu_if.h"
+#include "Manager_if.h"
 
-class CPU : public sc_module {
-    public:
+class CPU: public sc_module {
+public:
     sc_in_clk clock;
+    sc_in<bool> start;
     sc_port<cpu_cache_if> cache;
+    sc_port<Manager_if> manager;
 
     CPU(sc_module_name name_, int id_) : sc_module(name_), id(id_) {
         SC_THREAD(execute);
@@ -23,42 +31,42 @@ class CPU : public sc_module {
 
     SC_HAS_PROCESS(CPU); // Needed because we didn't use SC_TOR
 
-    private:
+private:
     int id;
 
     void execute() {
+        wait(this->start.value_changed_event());
+        if (!this->start.read()) return;
+
         TraceFile::Entry tr_data;
         // Loop until end of tracefile
         while (!tracefile_ptr->eof()) {
             // Get the next action for the processor in the trace
-            if (!tracefile_ptr->next(id, tr_data)) {
-                cerr << "Error reading trace for CPU" << endl;
-                break;
+            for (uint32_t i = 0; i < num_cpus; i++) {
+                if (!tracefile_ptr->next(i, tr_data)) {
+                    cerr << "Error reading trace for Manager" << endl;
+                    break;
+                }
+                switch (tr_data.type) {
+                    case TraceFile::ENTRY_TYPE_READ:
+                        this->cache->cpu_read(tr_data.addr);
+                        break;
+                    case TraceFile::ENTRY_TYPE_WRITE:
+                        this->cache->cpu_write(tr_data.addr);
+                        break;
+                    case TraceFile::ENTRY_TYPE_NOP:
+                        log(name(), "nop");
+                        break;
+                    default:
+                        cerr << "Error, got invalid data from Trace" << endl;
+                        exit(0);
+                }
+                wait();
+                // Finished the Tracefile, now stop the simulation
             }
-
-            switch (tr_data.type) {
-            case TraceFile::ENTRY_TYPE_READ:
-                log(name(), "reading from address", tr_data.addr);
-                cache->cpu_read(tr_data.addr);
-                log(name(), "read done");
-                break;
-            case TraceFile::ENTRY_TYPE_WRITE:
-                log(name(), "writing to address", tr_data.addr);
-                cache->cpu_write(tr_data.addr);
-                log(name(), "write done");
-                break;
-            case TraceFile::ENTRY_TYPE_NOP:
-                log(name(), "nop");
-                break;
-            default:
-                cerr << "Error, got invalid data from Trace" << endl;
-                exit(0);
-            }
-            wait();
         }
-        // Finished the Tracefile, now stop the simulation
-        sc_stop();
+        manager->finish();
     }
 };
 
-#endif
+#endif //FRAMEWORK_CPU_H

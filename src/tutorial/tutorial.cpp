@@ -2,7 +2,7 @@
  * File: tutorial.cpp
  *
  * Tutorial implementation for Multi-Core Processor Systems Lab session.
- * Implements a simple CPU and memory simulation with randomly generated
+ * Implements a simple Manager and memory simulation with randomly generated
  * read and write requests
  *
  * Author(s): Michiel W. van Tol, Mike Lankamp, Jony Zhang,
@@ -74,7 +74,7 @@ SC_MODULE(Memory) {
     }
 };
 
-SC_MODULE(CPU) {
+SC_MODULE(Manager) {
     public:
     sc_in<bool> Port_CLK;
     sc_in<Memory::RetCode> Port_MemDone;
@@ -82,7 +82,7 @@ SC_MODULE(CPU) {
     sc_out<uint64_t> Port_MemAddr;
     sc_inout_rv<64> Port_MemData;
 
-    SC_CTOR(CPU) {
+    SC_CTOR(Manager) {
         SC_THREAD(execute);
         sensitive << Port_CLK.pos();
         dont_initialize();
@@ -123,7 +123,7 @@ int sc_main(int argc, char *argv[]) {
     try {
         // Instantiate Modules
         Memory mem("main_memory");
-        CPU    cpu("cpu");
+        Manager    cpu("cpu");
 
         // Buffers and Signals
         sc_buffer<Memory::Function> sigMemFunc;
@@ -131,7 +131,7 @@ int sc_main(int argc, char *argv[]) {
         sc_signal<uint64_t>         sigMemAddr;
         sc_signal_rv<64>            sigMemData;
 
-        // The clock that will drive the CPU and Memory
+        // The clock that will drive the Manager and Memory
         sc_clock clk;
 
         // Connecting module ports with signals

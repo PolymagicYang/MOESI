@@ -11,7 +11,6 @@
 
 class Bus : public bus_if, public sc_module {
 public:
-    sc_port<bus_if> bus;
     sc_port<Memory_if> memory;
     sc_in_clk clock;
     sc_out<request> Port_Cache;
@@ -37,7 +36,7 @@ private:
         while (true) {
             if (!this->requests.empty()) {
                 // there are requests in the queue, fetching the requests.
-                uint32_t request_i;
+                uint32_t request_i = 0;
 
                 for (uint32_t i = 0; i < this->requests.size(); i++) {
                     request_i = i;
@@ -47,11 +46,15 @@ private:
                     }
                 }
 
-                if (!this->requests.empty()) {
-                    auto req = this->requests[request_i];
-                    this->requests.erase(this->requests.begin() + request_i);
 
+                auto req = this->requests[request_i];
+                this->requests.erase(this->requests.begin() + request_i);
+
+                if (req.destination == location::cache || req.destination == location::all) {
+                    cout << "cache port" << endl;
                     this->Port_Cache.write(req);
+                }
+                if (req.destination == location::memory || req.destination == location::all) {
                     if (req.op == op_type::read_miss) {
                         this->memory->read(req);
                     }

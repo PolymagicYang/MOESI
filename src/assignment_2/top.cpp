@@ -6,8 +6,9 @@
 #include <iostream>
 #include <systemc.h>
 
-#include "CPU.h"
+#include "Manager.h"
 #include "Cache.h"
+#include "CPU.h"
 #include "psa.h"
 #include "Bus.h"
 
@@ -32,29 +33,41 @@ int sc_main(int argc, char *argv[]) {
         stats_init();
 
         // Create instances with id 0
-        auto cpu_slots = new vector<CPU *>;
-        auto cache_slots = new vector<Cache *>;
-
-        // The clock that will drive the CPU
+        // The clock that will drive the Manager and bus.
         sc_clock clk;
 
         auto memory = new Memory("memory");
         auto bus = new Bus("Bus");
+        auto dispatcher = new Manager(sc_gen_unique_name("manager"));
+
         bus->clock(clk);
+        memory->clk(clk);
+        dispatcher->clock(clk);
+
+        memory->bus(*bus);
+        bus->memory(*memory);
 
         sc_buffer<request> request_buffer;
+        sc_signal<bool> start_signal;
         bus->Port_Cache(request_buffer);
 
-        for (uint32_t i; i < num_cpus; i++) {
-            auto cpu = new CPU(sc_gen_unique_name("cpu"), 0);
-            auto cache = new Cache(sc_gen_unique_name("cache"), 0);
+        dispatcher->start(start_signal);
+        /*
+        * bus and cache should connects to the Manager.
+        * list: Manager <-> Cache <-> bus <-> Memory
+        * Every cache also has a signal port.
+        */
+        for (uint32_t i = 0; i < num_cpus; i++) {
+            auto cache = new Cache(sc_gen_unique_name("cache"), (int) i);
 
-            cache->Port_Cache(request_buffer);
-            cpu->cache(*cache);
-            cpu->clock(clk);
             cache->bus_port(*bus);
-            cpu_slots->push_back(cpu);
-            cache_slots->push_back(cache);
+            cache->Port_Cache(request_buffer);
+
+            auto cpu = new CPU(sc_gen_unique_name("cpu"), (int) i);
+            cpu->start(start_signal);
+            cpu->clock(clk);
+            cpu->manager(*dispatcher);
+            cpu->cache(*cache);
         }
 
         // Start Simulation
@@ -65,14 +78,9 @@ int sc_main(int argc, char *argv[]) {
         cout << sc_time_stamp() << endl;
 
         // Cleanup components
-        for (auto cpu : *cpu_slots) {
-            delete cpu;
-        }
-        for (auto cache : *cache_slots) {
-            delete cache;
-        }
         delete bus;
         delete memory;
+        delete dispatcher;
     } catch (exception &e) {
         cerr << e.what() << endl;
     }
