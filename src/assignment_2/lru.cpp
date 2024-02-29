@@ -57,8 +57,7 @@ op_type LRU::read(uint64_t tag, uint32_t id) {
     if (curr != nullptr) {
         // cache hits.
         event = op_type::read_hit;
-
-        sc_core::wait(1); // read the cache set out.
+        // sc_core::wait(1); Can't wait here, because this operating will lose 1
 
         cout << sc_core::sc_time_stamp()
              << " [READ HIT] on " << to_string(curr->index) << "th cache line with tag: 0x"

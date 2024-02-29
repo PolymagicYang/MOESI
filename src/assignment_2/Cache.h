@@ -56,40 +56,48 @@ private:
     op_type event;
     Set *sets;
 
-    request probe() const {
-        sc_core::wait(); // cache is sensitive with the sc_in signal.
+    bool probe(request *ret) const {
+        bool req_exists = this->Port_Cache.event();
 
-        auto req = this->Port_Cache.read();
-        cout << req;
-        if (req.cpu_id != this->id) {
-            // Probe the actions from the other caches.
-            uint64_t addr = req.addr;
-            uint64_t set_i = (addr >> 5) % NR_SETS;
-            uint64_t tag = (addr >> 5) / NR_SETS;
+        if (req_exists) {
+            auto req = this->Port_Cache.read();
+            *ret = req;
+            // cout << req;
+            // This function should only receice the data from other caches and filter the data from memory.
+            if (req.cpu_id != this->id && req.source != location::memory) {
+                // Probe the actions from the other caches.
+                uint64_t addr = req.addr;
+                uint64_t set_i = (addr >> 5) % NR_SETS;
+                uint64_t tag = (addr >> 5) / NR_SETS;
 
-            Set *set = &this->sets[set_i];
-            LRU *lru = set->lru;
-            cache_status curr_status;
+                Set *set = &this->sets[set_i];
+                LRU *lru = set->lru;
+                cache_status curr_status;
 
-            if (lru->get_status(tag, &curr_status)) {
-                // Ignore the probe if there is no cache line locally.
-                if (req.op == op_type::write_hit && curr_status == cache_status::valid) {
-                    // Probe write hit.
-                    lru->transition(cache_status::invalid, tag);
-                }
-                if (req.op == op_type::read_hit && curr_status == cache_status::valid) {
-                    lru->transition(cache_status::valid, tag);
+                if (lru->get_status(tag, &curr_status)) {
+                    // Ignore the probe if there is no cache line locally.
+                    if (req.op == op_type::write_hit && curr_status == cache_status::valid) {
+                        // Probe write hit.
+                        lru->transition(cache_status::invalid, tag);
+                    }
+                    if (req.op == op_type::read_hit && curr_status == cache_status::valid) {
+                        lru->transition(cache_status::valid, tag);
+                    }
                 }
             }
         }
-        return req;
+        return req_exists;
     }
 
     void broadcast(request req) {
         this->bus_port->try_request(req);
 
         while (true) {
-            request ret = this->probe();
+            // wait until receive the same request.
+            wait(this->Port_Cache.value_changed_event());
+
+            request ret = {};
+            this->probe(&ret);
 
             // req can't be the nullptr because of the wait fn.
             if (ret.cpu_id == this->id && ret.source == location::cache) {
@@ -100,15 +108,16 @@ private:
 
     void wait_mem() {
         while (true) {
-            request ret = this->probe();
+            // wait until receive the same request.
+            wait(this->Port_Cache.value_changed_event());
 
-            cout << ret;
+            request ret = {};
+            this->probe(&ret);
             // req can't be the nullptr because of the wait fn.
             if (ret.cpu_id == this->id && ret.source == location::memory) {
                 cout << "break";
                 break;
             }
-            wait();
         }
     }
 };

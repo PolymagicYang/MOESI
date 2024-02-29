@@ -46,21 +46,16 @@ private:
                     }
                 }
 
-
                 auto req = this->requests[request_i];
                 this->requests.erase(this->requests.begin() + request_i);
 
-                if (req.destination == location::cache || req.destination == location::all) {
-                    cout << "cache port" << endl;
-                    this->Port_Cache.write(req);
+                this->Port_Cache.write(req);
+                if (req.op == op_type::read_miss) {
+                    this->memory->read(req);
                 }
-                if (req.destination == location::memory || req.destination == location::all) {
-                    if (req.op == op_type::read_miss) {
-                        this->memory->read(req);
-                    }
-                    if (req.op == op_type::write_miss || req.op == op_type::write_hit) {
-                        this->memory->write(req);
-                    }
+
+                if (req.op == op_type::write_miss || req.op == op_type::write_hit) {
+                    this->memory->write(req);
                 }
             }
             wait();

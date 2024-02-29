@@ -15,7 +15,8 @@ int Cache::cpu_read(uint64_t addr) {
     // cout << "Init state for " << to_string(set_i) << "th cache line:" << endl;
     // cout << *lru;
 
-    this->probe();
+    // request ret = {}; It never be called, becuase the bus only send data on the fallen edge.
+    // this->probe(&ret);
 
     op_type operation = lru->read(tag, (uint32_t) this->id);
 
@@ -64,11 +65,13 @@ int Cache::cpu_write(uint64_t addr) {
     // cout << *lru;
 
     // detect the requests from last falling edge.
-    this->probe();
+    // request ret = {}; It never be called, becuase the bus only send data on the fallen edge.
+    // this->probe(&ret);
     op_type operation = lru->write(tag, 0, (uint32_t) this->id);
 
     request req;
-    req.source = location::all;
+    req.source = location::cache;
+    req.destination = location::all;
     req.cpu_id = this->id;
     req.addr = addr;
 
@@ -79,7 +82,10 @@ int Cache::cpu_write(uint64_t addr) {
         case write_miss:
             req.op = write_miss;
 
+            cout << "broadcast" << endl;
             this->broadcast(req);
+            cout << "broadcast end" << endl;
+
             this->wait_mem();
             break;
         default:
@@ -88,6 +94,8 @@ int Cache::cpu_write(uint64_t addr) {
 
     req.destination = location::memory; // avoid broadcast write op twice.
     this->broadcast(req);
+
+    cout << "finish broadcast" << endl;
     this->wait_mem();
 
     cout << sc_time_stamp() << " [WRITE END]" << endl << endl;
