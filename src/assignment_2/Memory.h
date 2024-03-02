@@ -36,6 +36,17 @@ class Memory : public Memory_if, public sc_module {
         return 0;
     }
 
+    void ack() override {
+        this->ack_ok = true;
+    }
+
+    vector<request> get_requests() override {
+        // copy the result.
+        vector<request> result = this->send_buffer;
+        this->send_buffer.clear();
+        return result;
+    }
+
     void execute() {
         while (true) {
             // Pop the first request.
@@ -52,7 +63,13 @@ class Memory : public Memory_if, public sc_module {
                     response.op = req.op;
 
                     wait(100); // One memory access consumes 100 cycles.
-                    this->bus->try_request(response);
+                    this->send_buffer.push_back(response);
+
+                    request_id response_id;
+                    response_id.cpu_id = response.cpu_id;
+                    response_id.source = location::memory;
+                    this->bus->try_request(response_id);
+                    this->wait_ack();
                 }
             }
             sc_core::wait();
@@ -61,5 +78,17 @@ class Memory : public Memory_if, public sc_module {
 
 private:
     vector<request> requests = vector<request>();
+    vector<request> send_buffer = vector<request>();
+    bool ack_ok;
+    void wait_ack() {
+        while (true) {
+            wait();
+            // This state can be invalid.
+            if (this->ack_ok) {
+                this->ack_ok = false;
+                return;
+            }
+        }
+    }
 };
 #endif

@@ -42,28 +42,26 @@ private:
         // Loop until end of tracefile
         while (!tracefile_ptr->eof()) {
             // Get the next action for the processor in the trace
-            for (uint32_t i = 0; i < num_cpus; i++) {
-                if (!tracefile_ptr->next(i, tr_data)) {
-                    cerr << "Error reading trace for Manager" << endl;
-                    break;
-                }
-                switch (tr_data.type) {
-                    case TraceFile::ENTRY_TYPE_READ:
-                        this->cache->cpu_read(tr_data.addr);
-                        break;
-                    case TraceFile::ENTRY_TYPE_WRITE:
-                        this->cache->cpu_write(tr_data.addr);
-                        break;
-                    case TraceFile::ENTRY_TYPE_NOP:
-                        // log(name(), "nop");
-                        break;
-                    default:
-                        cerr << "Error, got invalid data from Trace" << endl;
-                        exit(0);
-                }
-                wait();
-                // Finished the Tracefile, now stop the simulation
+            if (!tracefile_ptr->next(this->id, tr_data)) {
+                cerr << "Error reading trace for Manager" << endl;
+                break;
             }
+            switch (tr_data.type) {
+                case TraceFile::ENTRY_TYPE_READ:
+                    this->cache->cpu_read(tr_data.addr);
+                    break;
+                case TraceFile::ENTRY_TYPE_WRITE:
+                    this->cache->cpu_write(tr_data.addr);
+                    break;
+                case TraceFile::ENTRY_TYPE_NOP:
+                    // log(name(), "nop");
+                    break;
+                default:
+                    cerr << "Error, got invalid data from Trace" << endl;
+                    exit(0);
+            }
+            wait();
+            // Finished the Tracefile, now stop the simulation
         }
         manager->finish();
     }
