@@ -34,10 +34,42 @@ public:
 private:
     bus_requests requests;
 
+    void send_request(request req) {
+        if (req.destination == location::cache && req.source == location::memory) {
+            // From memory to cache.
+            this->caches[req.cpu_id]->finish_mem();
+        }
+
+        if (req.destination == location::cache && req.source == location::cache) {
+            cout << "broadcast" << endl;
+            // This is the cache broadcast, should ignore the sender when changing the states.
+            for (uint32_t i = 0; i < this->caches.size(); i++) {
+                if (i == req.cpu_id) {
+                    continue;
+                } else {
+                    this->caches[i]->state_transition(req);
+                }
+            }
+        }
+
+        if (req.destination == location::memory) {
+            // This should be equal to the filter in cache or memory.
+            if (req.op == op_type::read_miss) {
+                this->memory->read(req);
+            }
+
+            if (req.op == op_type::write_miss || req.op == op_type::write_hit) {
+                cout << "serve write miss" << endl;
+                this->memory->write(req);
+            }
+        }
+    };
+
     void execute() {
-        bool burst_mode = false;
         while (true) {
-            if (!this->requests.empty()) {
+            if (this->requests.empty()) {
+                wait();
+            } else {
                 // there are requests in the queue, fetching the requests.
                 uint32_t request_i = 0;
 
@@ -49,39 +81,29 @@ private:
                     }
                 }
 
-                auto req = this->requests[request_i];
+                auto req_id = this->requests[request_i];
                 this->requests.erase(this->requests.begin() + request_i);
 
-                if (req.destination == location::cache && req.source == location::memory) {
-                    // From memory to cache.
-                    this->caches[req.cpu_id]->finish_mem();
-                }
-
-                if (req.destination == location::cache && req.source == location::cache) {
-                    cout << "broadcast" << endl;
-                    // This is the cache broadcast, should ignore the sender when changing the states.
-                    for (uint32_t i = 0; i < this->caches.size(); i++) {
-                        if (i == req.cpu_id) {
-                            this->caches[i]->ack();
-                        } else {
-                            this->caches[i]->state_transition(req);
-                        }
+                std::vector<request> buffer;
+                if (req_id.source == location::cache) {
+                    int cpu_id = req_id.cpu_id;
+                    // This is used to implement the burst request.
+                    buffer = this->caches[cpu_id]->get_requests(); // get all requests in the buffer.
+                    for (auto req : buffer) {
+                        this->send_request(req);
+                        wait();
                     }
-                }
+                    this->caches[cpu_id]->ack();
 
-                if (req.destination == location::memory) {
-                    // This should be equal to the filter in cache or memory.
-                    if (req.op == op_type::read_miss) {
-                        this->memory->read(req);
+                } else if (req_id.source == location::memory) {
+                    buffer = this->memory->get_requests();
+                    for (auto req : buffer) {
+                        this->send_request(req);
+                        wait();
                     }
-
-                    if (req.op == op_type::write_miss || req.op == op_type::write_hit) {
-                        cout << "serve write miss" << endl;
-                        this->memory->write(req);
-                    }
+                    this->memory->ack();
                 }
             }
-            wait();
         }
     }
 };

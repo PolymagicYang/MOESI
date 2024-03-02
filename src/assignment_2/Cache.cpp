@@ -18,15 +18,17 @@ int Cache::cpu_read(uint64_t addr) {
     // request ret = {}; It never be called, becuase the bus only send data on the fallen edge.
     // this->probe(&ret);
 
-    op_type operation = lru->read(tag, (uint32_t) this->id);
+    op_type operation = lru->read(tag, (uint32_t) this->id, this);
 
     switch (operation) {
         case read_hit:
-            this->broadcast(addr, operation);
+            this->send_readhit(addr);
+            wait_ack();
             break;
         case read_miss:
-            this->broadcast(addr, operation);
-            this->access_mem(addr, operation); // read allocate.
+            this->send_readmiss(addr);
+            wait_ack();
+            wait_mem();
             break;
         default:
             cout << "[ERROR]: detect write operations when read" << endl;
@@ -42,21 +44,18 @@ int Cache::cpu_write(uint64_t addr) {
 
     Set *set = &this->sets[set_i];
     LRU *lru = set->lru;
-    op_type operation = lru->write(tag, 0, (uint32_t) this->id);
+    op_type operation = lru->write(tag, 0, (uint32_t) this->id, this);
 
     switch (operation) {
         case write_hit:
-            cout << "write hit." << endl;
-            this->broadcast(addr, operation);
-            this->access_mem(addr, operation); // write through.
+            this->send_writehit(addr);
+            wait_ack();
+            wait_mem();
             break;
         case write_miss:
-            cout << "write miss." << endl;
-            this->broadcast(addr, operation);
-            cout << "broadcast finished." << endl;
-            this->access_mem(addr, operation); // write allocate.
-            cout << "access memory finished." << endl;
-            this->access_mem(addr, operation); // write through.
+            this->send_writemiss(addr);
+            wait_ack();
+            wait_mem();
             break;
         default:
             cout << "[ERROR]: detect read operations when write" << endl;
@@ -99,4 +98,10 @@ int Cache::ack() {
 int Cache::finish_mem() {
     this->mem_ok = true;
     return 0;
+}
+
+std::vector<request> Cache::get_requests() {
+    vector<request> result = this->send_buffer;
+    this->send_buffer.clear();
+    return result;
 }

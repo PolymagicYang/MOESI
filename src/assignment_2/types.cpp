@@ -12,3 +12,9 @@ std::ostream& operator<<(std::ostream& os, const request& val) {
     os << "op: " << val.op <<  std::endl;
     return os;
 }
+
+std::ostream& operator<<(std::ostream& os, const request_id& val) {
+    os << "cpu: " << to_string(val.cpu_id) <<  std::endl;
+    os << "source: " << val.source <<  std::endl;
+    return os;
+}

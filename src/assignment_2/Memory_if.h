@@ -13,6 +13,8 @@ class Memory_if: public virtual sc_interface {
 public:
     virtual int read(request) = 0;
     virtual int write(request) = 0;
+    virtual void ack() = 0;
+    virtual std::vector<request> get_requests() = 0;
 };
 
 #endif //FRAMEWORK_MEMORY_IF_H
