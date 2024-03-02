@@ -18,7 +18,7 @@ class cpu_cache_if : public virtual sc_interface {
 
     virtual int finish_mem() = 0;
 
-    virtual std::vector<request> get_requests();
+    virtual std::vector<request> get_requests() = 0;
 };
 
 #endif

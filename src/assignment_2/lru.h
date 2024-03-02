@@ -9,7 +9,6 @@
 #include <iomanip>
 #include <iostream>
 #include "types.h"
-#include "Cache.h"
 
 using namespace std;
 
@@ -42,14 +41,13 @@ public:
 
     void transition(cache_status target, uint64_t tag);
 
-    bool get_status(uint64_t, cache_status*);
+    bool get_status(uint64_t, cache_status*) const;
 
     LRUnit *head;
     LRUnit *tail;
     LRUnit *lines;
     uint8_t lru_index;
 
-private:
     void push2head(LRUnit *curr) {
         if (this->head == nullptr && this->tail == nullptr) {
             // Initialization.

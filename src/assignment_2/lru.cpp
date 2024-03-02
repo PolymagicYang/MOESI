@@ -196,7 +196,7 @@ void LRU::transition(cache_status target, uint64_t tag) {
     }
 }
 
-bool LRU::get_status(uint64_t tag, cache_status* status) {
+bool LRU::get_status(uint64_t tag, cache_status* status) const {
     // return true if find the cache line else false.
     LRUnit *curr = this->find(tag);
 

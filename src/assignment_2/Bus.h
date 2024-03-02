@@ -16,7 +16,7 @@ public:
     sc_in_clk clock;
     std::vector<sc_port<cpu_cache_if>> caches;
 
-    int try_request(request) override;
+    int try_request(request_id) override;
 
     // Constructor without SC_ macro.
     Bus(sc_module_name name_) : sc_module(name_) {
@@ -83,13 +83,14 @@ private:
 
                 auto req_id = this->requests[request_i];
                 this->requests.erase(this->requests.begin() + request_i);
-
                 std::vector<request> buffer;
+
                 if (req_id.source == location::cache) {
                     int cpu_id = req_id.cpu_id;
                     // This is used to implement the burst request.
                     buffer = this->caches[cpu_id]->get_requests(); // get all requests in the buffer.
                     for (auto req : buffer) {
+                        cout << sc_time_stamp() << endl;
                         this->send_request(req);
                         wait();
                     }
@@ -103,6 +104,7 @@ private:
                     }
                     this->memory->ack();
                 }
+                wait(); // Wait the cache acks the requests, then the bus can process the next request.
             }
         }
     }

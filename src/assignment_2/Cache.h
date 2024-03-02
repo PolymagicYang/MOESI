@@ -58,8 +58,6 @@ public:
         delete this->sets;
     }
 
-
-
     void wait_ack() {
         while (true) {
             wait();
@@ -187,6 +185,10 @@ private:
     vector<request> send_buffer;
     bool ack_ok;
     bool mem_ok;
+
+    void lru_write(uint64_t addr, uint32_t cpuid, LRU *lru);
+
+    void lru_read(uint64_t addr, uint32_t cpuid, LRU *lru);
 };
 
 #endif
