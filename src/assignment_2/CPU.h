@@ -55,7 +55,7 @@ private:
                         this->cache->cpu_write(tr_data.addr);
                         break;
                     case TraceFile::ENTRY_TYPE_NOP:
-                        log(name(), "nop");
+                        // log(name(), "nop");
                         break;
                     default:
                         cerr << "Error, got invalid data from Trace" << endl;

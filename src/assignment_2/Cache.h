@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <systemc.h>
+#include <stdexcept>
 
 #include "Memory.h"
 #include "cpu_cache_if.h"
@@ -27,20 +28,24 @@ typedef struct Set {
 // cpu_cache_if interface.
 class Cache : public cpu_cache_if, public sc_module {
 public:
-    enum RetCode {
-        PROBE_DONE
-    };
-
     sc_port<bus_if> bus_port;
     sc_in<request> Port_Cache; // single producer multiple consumer (bus <-> many caches).
+    sc_in_clk clk;
 
     // cpu_cache interface methods.
     int cpu_read(uint64_t addr) override;
 
     int cpu_write(uint64_t addr) override;
 
+    int state_transition(request req) override;
+
+    int ack() override;
+
+    int finish_mem() override;
+
     // Constructor without SC_ macro.
     Cache(sc_module_name name_, int id_) : sc_module(name_), id(id_) {
+        sensitive << clk.pos();
         this->sets = new Set[NR_SETS];
         for (uint8_t i = 0; i < NR_SETS; i++) {
             this->sets[i].lru = new LRU(SET_SIZE, i);
@@ -53,72 +58,50 @@ public:
 
 private:
     int id;
-    op_type event;
     Set *sets;
+    vector<request> pending_requests;
+    bool ack_ok;
+    bool mem_ok;
 
-    bool probe(request *ret) const {
-        bool req_exists = this->Port_Cache.event();
-
-        if (req_exists) {
-            auto req = this->Port_Cache.read();
-            *ret = req;
-            // cout << req;
-            // This function should only receice the data from other caches and filter the data from memory.
-            if (req.cpu_id != this->id && req.source != location::memory) {
-                // Probe the actions from the other caches.
-                uint64_t addr = req.addr;
-                uint64_t set_i = (addr >> 5) % NR_SETS;
-                uint64_t tag = (addr >> 5) / NR_SETS;
-
-                Set *set = &this->sets[set_i];
-                LRU *lru = set->lru;
-                cache_status curr_status;
-
-                if (lru->get_status(tag, &curr_status)) {
-                    // Ignore the probe if there is no cache line locally.
-                    if (req.op == op_type::write_hit && curr_status == cache_status::valid) {
-                        // Probe write hit.
-                        lru->transition(cache_status::invalid, tag);
-                    }
-                    if (req.op == op_type::read_hit && curr_status == cache_status::valid) {
-                        lru->transition(cache_status::valid, tag);
-                    }
-                }
-            }
-        }
-        return req_exists;
-    }
-
-    void broadcast(request req) {
+    void broadcast(uint64_t addr, op_type op) {
+        request req;
+        req.source = location::cache;
+        req.destination = location::cache;
+        req.cpu_id = this->id;
+        req.addr = addr;
+        req.op = op;
         this->bus_port->try_request(req);
 
         while (true) {
-            // wait until receive the same request.
-            wait(this->Port_Cache.value_changed_event());
-
-            request ret = {};
-            this->probe(&ret);
-
-            // req can't be the nullptr because of the wait fn.
-            if (ret.cpu_id == this->id && ret.source == location::cache) {
-                break;
+            wait();
+            // This state can be invalid.
+            if (this->ack_ok) {
+                this->ack_ok = false;
+                return;
             }
         }
     }
 
     void wait_mem() {
         while (true) {
-            // wait until receive the same request.
-            wait(this->Port_Cache.value_changed_event());
-
-            request ret = {};
-            this->probe(&ret);
-            // req can't be the nullptr because of the wait fn.
-            if (ret.cpu_id == this->id && ret.source == location::memory) {
-                cout << "break";
-                break;
+            wait();
+            if (this->mem_ok) {
+                this->mem_ok = false;
+                return;
             }
         }
+    }
+
+    void access_mem(uint64_t addr, op_type op) {
+        request req;
+        req.source = location::cache;
+        req.destination = location::memory;
+        req.cpu_id = this->id;
+        req.addr = addr;
+        req.op = op;
+        this->bus_port->try_request(req);
+
+        this->wait_mem();
     }
 };
 

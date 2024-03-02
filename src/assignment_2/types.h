@@ -10,7 +10,6 @@ enum location {
     // source type
     memory = 0,
     cache = 1,
-    all = 2,
 };
 
 enum op_type {
@@ -26,6 +25,7 @@ typedef struct request {
     enum location destination;
     enum op_type op;
     uint64_t addr;
+    bool burst;
 
     request& operator=(const request& rhs) {
         cpu_id = rhs.cpu_id;
@@ -35,7 +35,7 @@ typedef struct request {
         return *this;
     }
 
-    bool operator==(const request& rhs) {
+    bool operator==(const request& rhs) const {
         return cpu_id == rhs.cpu_id && source == rhs.source && op == rhs.op && addr == rhs.addr && rhs.destination == destination;
     }
 } request;

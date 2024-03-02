@@ -49,7 +49,6 @@ int sc_main(int argc, char *argv[]) {
 
         sc_buffer<request> request_buffer;
         sc_signal<bool> start_signal;
-        bus->Port_Cache(request_buffer);
 
         dispatcher->start(start_signal);
         /*
@@ -62,6 +61,8 @@ int sc_main(int argc, char *argv[]) {
 
             cache->bus_port(*bus);
             cache->Port_Cache(request_buffer);
+            cache->clk(clk);
+            bus->caches[i](*cache);
 
             auto cpu = new CPU(sc_gen_unique_name("cpu"), (int) i);
             cpu->start(start_signal);

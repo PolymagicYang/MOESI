@@ -55,7 +55,7 @@ class Memory : public Memory_if, public sc_module {
                     this->bus->try_request(response);
                 }
             }
-            sc_core::wait(1);
+            sc_core::wait();
         }
     }
 

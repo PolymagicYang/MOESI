@@ -57,7 +57,7 @@ op_type LRU::read(uint64_t tag, uint32_t id) {
     if (curr != nullptr) {
         // cache hits.
         event = op_type::read_hit;
-        // sc_core::wait(1); Can't wait here, because this operating will lose 1
+        sc_core::wait(1);
 
         cout << sc_core::sc_time_stamp()
              << " [READ HIT] on " << to_string(curr->index) << "th cache line with tag: 0x"
@@ -120,6 +120,8 @@ op_type LRU::write(uint64_t tag, uint32_t, uint32_t id) {
     op_type event;
 
     if (curr != nullptr) {
+        sc_core::wait();
+
         event = op_type::write_hit;
         cout << sc_core::sc_time_stamp()
              << " [WRITE HIT] on " << to_string(curr->index) << "th cache line with tag: 0x"
@@ -160,7 +162,6 @@ op_type LRU::write(uint64_t tag, uint32_t, uint32_t id) {
             this->push2head(curr);
         } else {
             // store data.
-
             curr = this->get_clean_node();
             if (curr == nullptr) {
                 cout << "[ERROR]: find nullptr when get clean node." << endl;
