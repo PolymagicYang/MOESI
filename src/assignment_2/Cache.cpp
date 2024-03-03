@@ -15,7 +15,6 @@ int Cache::cpu_read(uint64_t addr) {
     // cout << *lru;
 
     lru_read(addr, (uint32_t) this->id, lru);
-    cout << sc_time_stamp() << " [READ END]" << endl << endl;
     return 0;
 }
 
@@ -25,7 +24,7 @@ int Cache::cpu_write(uint64_t addr) {
     Set *set = &this->sets[set_i];
     LRU *lru = set->lru;
     lru_write(addr, (uint32_t) this->id, lru);
-    cout << sc_time_stamp() << " [WRITE END]" << endl << endl;
+
     return 0;
 }
 
@@ -39,16 +38,12 @@ int Cache::state_transition(request req) {
     LRU *lru = set->lru;
     cache_status curr_status;
 
-    cout << "start invalidating." << to_string(addr) << endl;
-
     if (lru->get_status(tag, &curr_status)) {
         // Ignore the probe if there is no cache line locally.
-        cout << "into the loop." << endl;
         if ((req.op == op_type::write_hit || req.op == op_type::write_miss) && curr_status == cache_status::valid) {
             // Probe write hit.
-            cout << "before invalid: " << lru << endl;
+            log_addr(this->name(), "[TRANSITION] invalidate the cache line", addr);
             lru->transition(cache_status::invalid, tag);
-            cout << "after invalid: " << lru << endl;
         }
         if (req.op == op_type::read_hit && curr_status == cache_status::valid) {
             lru->transition(cache_status::valid, tag);
@@ -77,15 +72,10 @@ void Cache::lru_read(uint64_t addr, uint32_t cpuid, LRU* lru) {
     uint64_t tag = (addr >> 5) / NR_SETS;
     LRUnit *curr = lru->find(tag);
 
-    cout << "start reading." << endl;
-
     if (curr != nullptr) {
         // cache hits.
         sc_core::wait();
-
-        cout << sc_core::sc_time_stamp()
-             << " [READ HIT] on " << to_string(curr->index) << "th cache line with tag: 0x"
-             << setfill('0') << setw(13) << right << hex << tag << endl;
+        log_addr(this->name(), "[READ HIT]", addr);
 
         stats_readhit(cpuid);
         this->send_readhit(addr);
@@ -95,10 +85,7 @@ void Cache::lru_read(uint64_t addr, uint32_t cpuid, LRU* lru) {
     } else {
         // cache miss.
         stats_readmiss(cpuid);
-
-        cout << sc_core::sc_time_stamp()
-             << " [READ MISS] tag: 0x"
-             << setfill('0') << setw(13) << right << hex << tag << endl;
+        log_addr(this->name(), "[READ MISS]", addr);
 
         this->send_readmiss(addr);
         wait_ack();
@@ -106,16 +93,9 @@ void Cache::lru_read(uint64_t addr, uint32_t cpuid, LRU* lru) {
         if (lru->is_full()) {
             // Cache line eviction.
             curr = lru->tail;
-            cout << sc_core::sc_time_stamp()
-                 << " No enough space for new cache line, evict "
-                 << to_string(curr->index) << "th cache line" << endl;
-
             curr->tag = tag;
             curr->status = cache_status::valid;
-            cout << sc_core::sc_time_stamp()
-                 << " update cache line with tag: 0x"
-                 << setfill('0') << setw(13) << right << hex << curr->tag;
-
+            log_addr(this->name(), "[TRANSITION] validate the cache line", addr);
             lru->push2head(curr);
 
             wait_mem();
@@ -129,12 +109,7 @@ void Cache::lru_read(uint64_t addr, uint32_t cpuid, LRU* lru) {
             // append a new cache line.
             curr->tag = tag;
             curr->status = cache_status::valid;
-
-            cout << sc_core::sc_time_stamp()
-                 << " insert new cache line with "
-                 << "no." << to_string(curr->index)
-                 << " tag: 0x" << setfill('0') << setw(13) << right << hex
-                 << curr->tag;
+            log_addr(this->name(), "[TRANSITION] validate the cache line", addr);
 
             lru->push2head(curr);
             lru->size += 1;
@@ -150,14 +125,15 @@ void Cache::lru_write(uint64_t addr, uint32_t cpuid, LRU* lru) {
 
     if (curr != nullptr) {
         sc_core::wait();
-        cout << "[WRITE HIT]" << endl;
 
+        log_addr(this->name(), "[WRITE HIT]", addr);
         this->send_writehit(addr);
         this->wait_ack();
 
         stats_writehit(cpuid);
         curr->status = cache_status::valid;
         lru->push2head(curr);
+        log_addr(this->name(), "[TRANSITION] validate the cache line", addr);
 
         // The mem operating is in the last position, because the memory will execute the memory operations
         // in the service order, if this request comes firstly, then this cache will be invalid later, so we must
@@ -165,14 +141,10 @@ void Cache::lru_write(uint64_t addr, uint32_t cpuid, LRU* lru) {
         wait_mem();
     } else {
         // cache miss.
+        log_addr(this->name(), "[WRITE MISS]", addr);
         stats_writemiss(cpuid);
         this->send_writemiss(addr);
         this->wait_ack();
-
-        cout << sc_core::sc_time_stamp()
-             << " [WRITE MISS] tag: 0x"
-             << setfill('0')
-             << setw(13) << right << hex << tag << endl;
 
         if (lru->is_full()) {
             // needs to evict least recent used one.
@@ -180,6 +152,7 @@ void Cache::lru_write(uint64_t addr, uint32_t cpuid, LRU* lru) {
 
             curr->tag = tag;
             curr->status = cache_status::valid;
+            log_addr(this->name(), "[TRANSITION] validate the cache line", addr);
             lru->push2head(curr);
 
             wait_mem(); // write through, the cache may be invalidated during the waiting, but it's ok.
@@ -192,6 +165,7 @@ void Cache::lru_write(uint64_t addr, uint32_t cpuid, LRU* lru) {
             }
             curr->tag = tag;
             curr->status = cache_status::valid;
+            log_addr(this->name(), "[TRANSITION] validate the cache line", addr);
 
             lru->push2head(curr);
             lru->size += 1;

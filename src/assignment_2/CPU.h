@@ -48,10 +48,14 @@ private:
             }
             switch (tr_data.type) {
                 case TraceFile::ENTRY_TYPE_READ:
+                    log_addr(name(), "[READ] ", tr_data.addr);
                     this->cache->cpu_read(tr_data.addr);
+                    log_addr(name(), "[READ END] ", tr_data.addr);
                     break;
                 case TraceFile::ENTRY_TYPE_WRITE:
+                    log_addr(name(), "[WRITE]", tr_data.addr);
                     this->cache->cpu_write(tr_data.addr);
+                    log_addr(name(), "[WRITE END]", tr_data.addr);
                     break;
                 case TraceFile::ENTRY_TYPE_NOP:
                     // log(name(), "nop");
