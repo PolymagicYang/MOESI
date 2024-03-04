@@ -16,6 +16,9 @@
 
 using namespace std;
 
+const int MEMORY_CHANNELS = 2;
+const bool ENABLE_CHANNELS = false;
+
 int sc_main(int argc, char *argv[]) {
     try {
         // Get the tracefile argument and create Tracefile object
@@ -39,16 +42,23 @@ int sc_main(int argc, char *argv[]) {
         sc_clock clk;
 
         auto memory = new Memory("memory");
-        auto parallel_memory = new ParallelMemory("memory");
+        auto parallel_memory = new ParallelMemory("memory", MEMORY_CHANNELS);
         auto bus = new Bus("Bus");
         auto dispatcher = new Manager(sc_gen_unique_name("manager"));
 
         bus->clock(clk);
         memory->clk(clk);
+        parallel_memory->clk(clk);
         dispatcher->clock(clk);
 
         memory->bus(*bus);
-        bus->memory(*memory);
+        parallel_memory->bus(*bus);
+
+        if (ENABLE_CHANNELS) {
+            bus->memory(*parallel_memory);
+        } else {
+            bus->memory(*memory);
+        }
 
         sc_buffer<request> request_buffer;
         sc_signal<bool> start_signal;

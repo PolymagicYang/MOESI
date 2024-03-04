@@ -65,38 +65,29 @@ class ParallelMemory : public Memory_if, public sc_module {
             // Pop the first request.
             if (!this->requests.empty()) {
                 auto req = this->requests.front();
-                this->requests.erase(this->requests.begin());
 
-                bool has_free_slot = false;
-                int num_sent = 0;
-                while (true) {
-                    if (req.source != location::memory) {
-                        for (int i = 0; i < this->parallel_num; i++) {
-                            if (this->channel_states[i] == channel_state::idle) {
-                                this->channels[i] = req;
-                                this->channel_states[i] = channel_state::busy;
-                                has_free_slot = true;
-                            }
-                            if (this->channel_states[i] == channel_state::ready) {
-                                auto response = this->channels[i];
-                                request_id response_id;
-                                response_id.cpu_id = response.cpu_id;
-                                response_id.source = location::memory;
-                                this->bus->try_request(response_id);
-                                num_sent += 1;
-                                this->channel_states[i] = channel_state::idle;
-                            }
-                        }
-                    }
-
-                    if (has_free_slot) {
+                for (int i = 0; i < this->parallel_num; i++) {
+                    if (this->channel_states[i] == channel_state::idle) {
+                        this->channels[i] = req;
+                        this->channel_states[i] = channel_state::busy;
+                        this->requests.erase(this->requests.begin());
                         break;
-                    } else if (num_sent > 0) {
-                        for (int i = 0; i < num_sent; i++) {
-                            this->wait_ack();
-                        }
-                    } else {
-                        wait();
+                    }
+                }
+
+                for (int i = 0; i < this->parallel_num; i++) {
+                    if (this->channel_states[i] == channel_state::ready) {
+                        auto response = this->channels[i];
+                        request_id response_id;
+                        response_id.cpu_id = response.cpu_id;
+                        response_id.source = location::memory;
+
+                        this->bus->try_request(response_id);
+                        this->send_buffer.push_back(response);
+
+                        this->channel_states[i] = channel_state::idle;
+                        this->wait_ack();
+                        break;
                     }
                 }
             }
