@@ -4,7 +4,7 @@
 #include <iostream>
 #include <systemc.h>
 
-#include "cpu_cache_if.h"
+#include "cache_if.h"
 #include "helpers.h"
 #include "psa.h"
 #include "types.h"

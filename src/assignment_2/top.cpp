@@ -11,6 +11,8 @@
 #include "CPU.h"
 #include "psa.h"
 #include "Bus.h"
+#include "Memory.h"
+#include "ParallelMemory.h"
 
 using namespace std;
 
@@ -37,6 +39,7 @@ int sc_main(int argc, char *argv[]) {
         sc_clock clk;
 
         auto memory = new Memory("memory");
+        auto parallel_memory = new ParallelMemory("memory");
         auto bus = new Bus("Bus");
         auto dispatcher = new Manager(sc_gen_unique_name("manager"));
 

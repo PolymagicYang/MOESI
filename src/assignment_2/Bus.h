@@ -7,21 +7,22 @@
 #include "types.h"
 #include "bus_if.h"
 #include "Memory_if.h"
-#include "cpu_cache_if.h"
+#include "cache_if.h"
 #include <systemc.h>
+#include "helpers.h"
 
 class Bus : public bus_if, public sc_module {
 public:
     sc_port<Memory_if> memory;
     sc_in_clk clock;
-    std::vector<sc_port<cpu_cache_if>> caches;
+    std::vector<sc_port<cache_if>> caches;
 
     int try_request(request_id) override;
 
     // Constructor without SC_ macro.
     Bus(sc_module_name name_) : sc_module(name_) {
         SC_THREAD(execute);
-        this->caches = std::vector<sc_port<cpu_cache_if>>(num_cpus);
+        this->caches = std::vector<sc_port<cache_if>>(num_cpus);
         sensitive << clock.neg();
         dont_initialize(); // don't call execute to initialise it.
     }
@@ -35,13 +36,21 @@ private:
     bus_requests requests;
 
     void send_request(request req) {
+        string from;
+        string to;
+        from = req.source == location::cache ? "cache" : "memory";
+        to = req.destination == location::cache ? "cache" : "memory";
+
+        auto msg = "fetch the cpu_" + to_string(req.cpu_id) + " request: from " + from + " to " + to;
+
+        log(this->name(), msg.c_str());
+
         if (req.destination == location::cache && req.source == location::memory) {
             // From memory to cache.
             this->caches[req.cpu_id]->finish_mem();
         }
 
         if (req.destination == location::cache && req.source == location::cache) {
-            cout << "broadcast" << endl;
             // This is the cache broadcast, should ignore the sender when changing the states.
             for (uint32_t i = 0; i < this->caches.size(); i++) {
                 if (i == req.cpu_id) {
@@ -59,7 +68,6 @@ private:
             }
 
             if (req.op == op_type::write_miss || req.op == op_type::write_hit) {
-                cout << "serve write miss" << endl;
                 this->memory->write(req);
             }
         }
@@ -89,22 +97,25 @@ private:
                     int cpu_id = req_id.cpu_id;
                     // This is used to implement the burst request.
                     buffer = this->caches[cpu_id]->get_requests(); // get all requests in the buffer.
-                    for (auto req : buffer) {
-                        cout << sc_time_stamp() << endl;
+                    for (uint32_t i = 0; i < buffer.size(); i++) {
+                        auto req = buffer[i];
                         this->send_request(req);
+                        if (i == buffer.size() - 1) {
+                            this->caches[cpu_id]->ack();
+                        }
                         wait();
                     }
-                    this->caches[cpu_id]->ack();
-
                 } else if (req_id.source == location::memory) {
                     buffer = this->memory->get_requests();
-                    for (auto req : buffer) {
+                    for (uint32_t i = 0; i < buffer.size(); i++) {
+                        auto req = buffer[i];
                         this->send_request(req);
+                        if (i == buffer.size() - 1) {
+                            this->memory->ack();
+                        }
                         wait();
                     }
-                    this->memory->ack();
                 }
-                wait(); // Wait the cache acks the requests, then the bus can process the next request.
             }
         }
     }

@@ -29,6 +29,13 @@ inline void log(const char *comp, const char *msg) {
     }
 }
 
+inline void log_addr(const char *comp, const string& msg, uint64_t addr) {
+    if (sc_report_handler::get_verbosity_level() >= SC_MEDIUM) {
+        cout << setw(t_width) << sc_time_stamp() << ": " << comp;
+        cout << ": " << msg << " on 0x" << setfill('0') << setw(16) << right << hex << addr << endl;
+    }
+}
+
 /* Log the state change of a component to std out.
  * First argument is the name of component, followed by pairs
  * of name, values that need to be printed. */

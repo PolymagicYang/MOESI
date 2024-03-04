@@ -79,7 +79,7 @@ class Memory : public Memory_if, public sc_module {
 private:
     vector<request> requests = vector<request>();
     vector<request> send_buffer = vector<request>();
-    bool ack_ok;
+    bool ack_ok = false;
     void wait_ack() {
         while (true) {
             wait();
