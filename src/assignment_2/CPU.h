@@ -8,7 +8,7 @@
 #include <iostream>
 #include <systemc.h>
 
-#include "cpu_cache_if.h"
+#include "cache_if.h"
 #include "helpers.h"
 #include "psa.h"
 #include "types.h"
@@ -19,7 +19,7 @@ class CPU: public sc_module {
 public:
     sc_in_clk clock;
     sc_in<bool> start;
-    sc_port<cpu_cache_if> cache;
+    sc_port<cache_if> cache;
     sc_port<Manager_if> manager;
 
     CPU(sc_module_name name_, int id_) : sc_module(name_), id(id_) {

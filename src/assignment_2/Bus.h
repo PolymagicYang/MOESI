@@ -7,7 +7,7 @@
 #include "types.h"
 #include "bus_if.h"
 #include "Memory_if.h"
-#include "cpu_cache_if.h"
+#include "cache_if.h"
 #include <systemc.h>
 #include "helpers.h"
 
@@ -15,14 +15,14 @@ class Bus : public bus_if, public sc_module {
 public:
     sc_port<Memory_if> memory;
     sc_in_clk clock;
-    std::vector<sc_port<cpu_cache_if>> caches;
+    std::vector<sc_port<cache_if>> caches;
 
     int try_request(request_id) override;
 
     // Constructor without SC_ macro.
     Bus(sc_module_name name_) : sc_module(name_) {
         SC_THREAD(execute);
-        this->caches = std::vector<sc_port<cpu_cache_if>>(num_cpus);
+        this->caches = std::vector<sc_port<cache_if>>(num_cpus);
         sensitive << clock.neg();
         dont_initialize(); // don't call execute to initialise it.
     }
@@ -36,8 +36,12 @@ private:
     bus_requests requests;
 
     void send_request(request req) {
-        auto msg = "process cpu_" + to_string(req.cpu_id) + " request from " + to_string(req.source) + " to " +
-                to_string(req.destination);
+        string from;
+        string to;
+        from = req.source == location::cache ? "cache" : "memory";
+        to = req.destination == location::cache ? "cache" : "memory";
+
+        auto msg = "fetch the cpu_" + to_string(req.cpu_id) + " request: from " + from + " to " + to;
 
         log(this->name(), msg.c_str());
 
@@ -52,10 +56,7 @@ private:
                 if (i == req.cpu_id) {
                     continue;
                 } else {
-                    bool SNOOP_ENABLE = true;
-                    if (SNOOP_ENABLE) {
-                        this->caches[i]->state_transition(req);
-                    }
+                    this->caches[i]->state_transition(req);
                 }
             }
         }
@@ -115,7 +116,6 @@ private:
                         wait();
                     }
                 }
-                wait(); // Wait the cache acks the requests, then the bus can process the next request.
             }
         }
     }

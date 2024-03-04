@@ -6,7 +6,7 @@
 #include <stdexcept>
 
 #include "Memory.h"
-#include "cpu_cache_if.h"
+#include "cache_if.h"
 #include "helpers.h"
 #include "types.h"
 #include "lru.h"
@@ -25,8 +25,8 @@ typedef struct Set {
 
 
 // Class definition without the SC_ macro because we implement the
-// cpu_cache_if interface.
-class Cache : public cpu_cache_if, public sc_module {
+// cache_if interface.
+class Cache : public cache_if, public sc_module {
 public:
     sc_port<bus_if> bus_port;
     sc_in<request> Port_Cache; // single producer multiple consumer (bus <-> many caches).

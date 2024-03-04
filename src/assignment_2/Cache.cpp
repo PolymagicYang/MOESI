@@ -2,7 +2,7 @@
 #include "Cache.h"
 #include "psa.h"
 
-/* cpu_cache_if interface method
+/* cache_if interface method
  * Called by Manager.
  */
 int Cache::cpu_read(uint64_t addr) {
@@ -155,6 +155,7 @@ void Cache::lru_write(uint64_t addr, uint32_t cpuid, LRU* lru) {
             log_addr(this->name(), "[TRANSITION] validate the cache line", addr);
             lru->push2head(curr);
 
+            wait_mem(); // write-allocate.
             wait_mem(); // write through, the cache may be invalidated during the waiting, but it's ok.
         } else {
             // store data.
