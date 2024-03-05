@@ -127,7 +127,7 @@ The cpu uses cpu_read to drive the cache read data from the cache line based on 
 The cache will check the ack_ok flag to see if the bus already processed its request. The bus will use the ack() interface to tell the CPU the request is sent. The bus sent the ack at the negative edge, and the CPU checks it at the positive edge, this synchronization will ensure that all the other caches already notice the broadcast when the cache knows the ack.
 ###### Write
 
-###### States Transition Timing
+###### States Transition
 The transition between two states, from invalid to valid and from valid to invalid, plays a crucial role in maintaining the accuracy of simulations. Understanding the timing of these transitions is essential for the system's correctness.
 * Transition from Invalid to Valid 
 A cache transitions from invalid to valid under two circumstances, both of which ensure it reflects the latest data in memory.
@@ -139,7 +139,7 @@ A cache transitions from invalid to valid under two circumstances, both of which
     
     The detailed reason behind these specific timing is in the write race analysis section.
 * Valid -> Invalid
-The invalidation process is happened at the negative edge when there is need to invalidate. The bus will call the the state_transition function to invalidate the cache line except for the sender, and the cache doesn't have actions at the negative edge, so it avoids the conflicts.
+The invalidation process is happened at the negative edge when there is need to invalidate. The bus will call the the state_transition function defined by the cache_if to invalidate the cache line except for the sender, and the cache doesn't have actions at the negative edge, so it avoids the conflicts.
 ###### Write race analysis
 When the cache initiates a write request, it must group the **memory access requests** with **broadcast requests** in a single burst request. While a cache is awaiting a response from the memory, there's a chance it may receive a notification that the cache line it is waiting for has been invalidated, indicating that the memory location has been overwritten by other caches. This process is regulated through sequential memory execution, where the memory serves all requests in a First-In, First-Out (FIFO) order. Therefore, a cache that attempts to write to the memory and occupies the bus later has the capability to overwrite the value at the same location for all previous write accesses. Since this cache occupies the bus later, it holds the final authority to invalidate other caches and maintain its validity. Grouping requests into a single burst request is crucial to prevent the sequencing of memory access requests from overlapping, otherwise, if an early write operation is announced to other caches but executed later, it could mistakenly overwrite a newer write operation from other caches.
 
@@ -152,4 +152,11 @@ typedef std::vector<request_id> bus_requests;
 ```
 The memory processes the requests sequentially one by one, and one request needs 100 cycles to finish. The execution order matters because it reflects the serving order of the bus, the execution order must matches the order that the write request is processed by the bus, because the cache relies on this assumption.
 The bus will put the request into the memory buffer one by one at the negative clock edge, the memory will has thread that fetches the task from the buffer at the positive clock edge and there is no ruuning task.
+
+
+### Experiments
+##### Performance Evalution with Valid/Invalid Memory Model 
+##### Observing Cache Hit Rates with Snoop Enabled and Disabled.
+##### Assessing the Impact of Enabling vs. Disabling Memory Priority.
+##### Evaluating Performance with Multi-Channel Memory Configuration.
 
