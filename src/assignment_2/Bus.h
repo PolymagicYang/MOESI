@@ -54,10 +54,8 @@ private:
             // This is the cache broadcast, should ignore the sender when changing the states.
             for (uint32_t i = 0; i < this->caches.size(); i++) {
                 if (i == req.cpu_id) {
-                    cout << "test1" << endl;
                     continue;
                 } else {
-                    cout << "test2" << endl;
                     this->caches[i]->state_transition(req);
                 }
             }

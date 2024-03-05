@@ -28,8 +28,8 @@ class ParallelMemory : public Memory_if, public sc_module {
             SC_THREAD(execute);
         }
         SC_THREAD(dispatch);
-        sensitive << clk.pos(); // It's positive because the bus is falling edge triggered.
-        dont_initialize(); // don't call execute to initialise it.
+        // sensitive << clk.pos(); // It's positive because the bus is falling edge triggered.
+        // dont_initialize(); // don't call execute to initialise it.
     }
 
     SC_HAS_PROCESS(ParallelMemory); // Needed because we didn't use SC_TOR
@@ -63,46 +63,50 @@ class ParallelMemory : public Memory_if, public sc_module {
     void dispatch() {
         while (true) {
             // Pop the first request.
+            wait(clk.posedge_event());
             if (!this->requests.empty()) {
                 auto req = this->requests.front();
-
                 for (int i = 0; i < this->parallel_num; i++) {
                     if (this->channel_states[i] == channel_state::idle) {
+                        cout << "assign a slot" << endl;
                         this->channels[i] = req;
                         this->channel_states[i] = channel_state::busy;
                         this->requests.erase(this->requests.begin());
                         break;
                     }
                 }
+            }
 
-                for (int i = 0; i < this->parallel_num; i++) {
-                    if (this->channel_states[i] == channel_state::ready) {
-                        auto response = this->channels[i];
-                        request_id response_id;
-                        response_id.cpu_id = response.cpu_id;
-                        response_id.source = location::memory;
+            for (int i = 0; i < this->parallel_num; i++) {
+                if (this->channel_states[i] == channel_state::ready) {
+                    auto response = this->channels[i];
+                    request_id response_id;
+                    response_id.cpu_id = response.cpu_id;
+                    response_id.source = location::memory;
 
-                        this->bus->try_request(response_id);
-                        this->send_buffer.push_back(response);
+                    this->send_buffer.push_back(response);
+                    this->bus->try_request(response_id);
 
-                        this->channel_states[i] = channel_state::idle;
-                        this->wait_ack();
-                        break;
-                    }
+                    this->channel_states[i] = channel_state::idle;
+                    cout << "mark it as idle" << endl;
+                    this->wait_ack();
+                    cout << "sent" << endl;
+                    break;
                 }
             }
-            wait();
         }
     }
 
     void execute() {
         int process_id = this->id;
         this->id += 1;
+
         while (true) {
             // Pop the first request.
+            wait(clk.negedge_event());
+
             if (this->channel_states[process_id] == channel_state::busy) {
                 auto req = this->channels[process_id];
-
                 if (req.source != location::memory) {
                     request response;
                     response.cpu_id = req.cpu_id;
@@ -111,13 +115,13 @@ class ParallelMemory : public Memory_if, public sc_module {
                     response.destination = location::cache;
                     response.op = req.op;
 
-                    wait(100); // One memory access consumes 100 cycles.
-
-                    this->channel_states[process_id] = channel_state::ready;
+                    for (int i = 0; i < 100; i++) {
+                        wait(clk.negedge_event()); // One memory access consumes 100 cycles.
+                    }
                     this->channels[process_id] = response;
+                    this->channel_states[process_id] = channel_state::ready;
                 }
             }
-            wait();
         }
     }
 
@@ -132,7 +136,7 @@ private:
 
     void wait_ack() {
         while (true) {
-            wait();
+            wait(clk.posedge_event());
             // This state can be invalid.
             if (this->ack_ok) {
                 this->ack_ok = false;

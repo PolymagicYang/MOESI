@@ -29,6 +29,7 @@ typedef struct request {
     request& operator=(const request& rhs) {
         cpu_id = rhs.cpu_id;
         source = rhs.source;
+        destination = rhs.destination;
         op = rhs.op;
         addr = rhs.addr;
         return *this;

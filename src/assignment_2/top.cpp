@@ -16,8 +16,8 @@
 
 using namespace std;
 
-const int MEMORY_CHANNELS = 2;
-const bool ENABLE_CHANNELS = false;
+const int MEMORY_CHANNELS = 16;
+const bool ENABLE_CHANNELS = true;
 
 int sc_main(int argc, char *argv[]) {
     try {
