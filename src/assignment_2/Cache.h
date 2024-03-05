@@ -59,11 +59,14 @@ public:
     }
 
     void wait_ack() {
+        auto start = sc_time_stamp().to_default_time_units();
         while (true) {
             wait();
             // This state can be invalid.
             if (this->ack_ok) {
                 this->ack_ok = false;
+                stats_waitbus(this->id, sc_time_stamp().to_default_time_units() - start);
+                cout << "timestamp: " << sc_time_stamp().to_default_time_units() << " start: " << start << endl;
                 return;
             }
         }

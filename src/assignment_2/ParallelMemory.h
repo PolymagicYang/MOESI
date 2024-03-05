@@ -23,10 +23,7 @@ class ParallelMemory : public Memory_if, public sc_module {
     ParallelMemory(sc_module_name name_, int parallel_num_) : sc_module(name_), parallel_num(parallel_num_) {
         this->channels = new request[this->parallel_num];
         this->channel_states = new channel_state[this->parallel_num];
-        for (int i = 0; i < parallel_num; i++) {
-            this->channel_states[i] = channel_state::idle;
-            SC_THREAD(execute);
-        }
+        SC_THREAD(execute);
         SC_THREAD(dispatch);
         // sensitive << clk.pos(); // It's positive because the bus is falling edge triggered.
         // dont_initialize(); // don't call execute to initialise it.
@@ -68,7 +65,6 @@ class ParallelMemory : public Memory_if, public sc_module {
                 auto req = this->requests.front();
                 for (int i = 0; i < this->parallel_num; i++) {
                     if (this->channel_states[i] == channel_state::idle) {
-                        cout << "assign a slot" << endl;
                         this->channels[i] = req;
                         this->channel_states[i] = channel_state::busy;
                         this->requests.erase(this->requests.begin());
@@ -88,9 +84,7 @@ class ParallelMemory : public Memory_if, public sc_module {
                     this->bus->try_request(response_id);
 
                     this->channel_states[i] = channel_state::idle;
-                    cout << "mark it as idle" << endl;
                     this->wait_ack();
-                    cout << "sent" << endl;
                     break;
                 }
             }

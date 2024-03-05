@@ -56,6 +56,7 @@ private:
                 if (i == req.cpu_id) {
                     continue;
                 } else {
+                    // Disable/Enable snoop
                     this->caches[i]->state_transition(req);
                 }
             }
