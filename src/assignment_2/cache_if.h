@@ -14,11 +14,17 @@ class cache_if : public virtual sc_interface {
 
     virtual int state_transition(request req) = 0;
 
+    virtual int send_new_event() = 0;
+
+    virtual int send_data(request) = 0;
+
     virtual int ack() = 0;
 
     virtual int finish_mem() = 0;
 
     virtual std::vector<request> get_requests() = 0;
+
+    virtual bool get_cacheline_status(uint64_t, cache_status*) = 0;
 };
 
 #endif

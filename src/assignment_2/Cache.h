@@ -37,8 +37,6 @@ public:
 
     int cpu_write(uint64_t addr) override;
 
-    int state_transition(request req) override;
-
     int ack() override;
 
     int finish_mem() override;
@@ -47,16 +45,30 @@ public:
 
     // Constructor without SC_ macro.
     Cache(sc_module_name name_, int id_) : sc_module(name_), id(id_) {
+        this->has_new_event = false;
+        this->data_ok = false;
+        this->ack_ok = false;
         sensitive << clk.pos();
+        SC_THREAD(probe);
         this->sets = new Set[NR_SETS];
         for (uint8_t i = 0; i < NR_SETS; i++) {
             this->sets[i].lru = new LRU(SET_SIZE, i);
         }
     }
 
+    SC_HAS_PROCESS(Cache);
+
+    void probe();
+
     ~Cache() override {
         delete this->sets;
     }
+
+    int send_data(request req) override;
+
+    int send_new_event() override;
+
+    bool get_cacheline_status(uint64_t addr, cache_status* curr_status) override;
 
     void wait_ack() {
         auto start = sc_time_stamp().to_default_time_units();
@@ -72,111 +84,43 @@ public:
         }
     }
 
-    void send_readhit(uint64_t addr) {
+    request req_template(uint64_t addr, op_type op, location dest) {
         request req;
         req.source = location::cache;
-        req.destination = location::cache;
-        req.cpu_id = this->id;
+        req.sender_id = this->id;
+        req.has_data = false;
         req.addr = addr;
-        req.op = op_type::read_hit;
+        req.op = op;
+        req.destination = dest;
 
-        request_id rid;
-        rid.cpu_id = this->id;
-        rid.source = location::cache;
+        return req;
+    }
 
-        this->bus_port->try_request(rid);
+    void send_readhit(uint64_t addr) {
+        request req = req_template(addr, op_type::read_hit, location::cache);
         this->send_buffer.push_back(req);
     }
 
     void send_readmiss(uint64_t addr) {
-        request broadcast;
-        broadcast.source = location::cache;
-        broadcast.destination = location::cache;
-        broadcast.cpu_id = this->id;
-        broadcast.addr = addr;
-        broadcast.op = op_type::read_miss;
-
-        // read allocate.
-        request memory_request;
-        memory_request.source = location::cache;
-        memory_request.destination = location::memory;
-        memory_request.cpu_id = this->id;
-        memory_request.addr = addr;
-        memory_request.op = op_type::read_miss;
-
-        request_id rid;
-        rid.cpu_id = this->id;
-        rid.source = location::cache;
-
-        this->bus_port->try_request(rid);
-        this->send_buffer.push_back(broadcast);
-        this->send_buffer.push_back(memory_request);
+        request req = req_template(addr, op_type::read_miss, location::memory);
+        this->send_buffer.push_back(req);
     }
 
     void send_writehit(uint64_t addr) {
-        request broadcast;
-        broadcast.source = location::cache;
-        broadcast.destination = location::cache;
-        broadcast.cpu_id = this->id;
-        broadcast.addr = addr;
-        broadcast.op = op_type::write_hit;
-
-        // write through.
-        request memory_request;
-        memory_request.source = location::cache;
-        memory_request.destination = location::memory;
-        memory_request.cpu_id = this->id;
-        memory_request.addr = addr;
-        memory_request.op = op_type::write_hit;
-
-        request_id rid;
-        rid.cpu_id = this->id;
-        rid.source = location::cache;
-
-        this->bus_port->try_request(rid);
-        this->send_buffer.push_back(broadcast);
-        this->send_buffer.push_back(memory_request);
+        request req = req_template(addr, op_type::write_hit, location::memory);
+        this->send_buffer.push_back(req);
     }
 
     void send_writemiss(uint64_t addr) {
-        request broadcast;
-        broadcast.source = location::cache;
-        broadcast.destination = location::cache;
-        broadcast.cpu_id = this->id;
-        broadcast.addr = addr;
-        broadcast.op = op_type::write_miss;
-
-        // write allocate.
-        request memory_read_request;
-        memory_read_request.source = location::cache;
-        memory_read_request.destination = location::memory;
-        memory_read_request.cpu_id = this->id;
-        memory_read_request.addr = addr;
-        memory_read_request.op = op_type::write_miss;
-
-        // write through.
-        request memory_write_request;
-        memory_write_request.source = location::cache;
-        memory_write_request.destination = location::memory;
-        memory_write_request.cpu_id = this->id;
-        memory_write_request.addr = addr;
-        memory_write_request.op = op_type::write_miss;
-
-        request_id rid;
-        rid.cpu_id = this->id;
-        rid.source = location::cache;
-
-        this->bus_port->try_request(rid);
-        this->send_buffer.push_back(broadcast);
-        this->send_buffer.push_back(memory_read_request);
-        this->send_buffer.push_back(memory_write_request);
+        request req = req_template(addr, op_type::write_miss, location::memory);
+        this->send_buffer.push_back(req);
     }
 
-    void wait_mem() {
+    void wait_data() {
         while (true) {
             wait();
-            if (this->mem_ok) {
-                this->mem_ok = false;
+            if (this->data_ok) {
+                this->data_ok = false;
                 return;
             }
         }
@@ -187,7 +131,9 @@ private:
     Set *sets;
     vector<request> send_buffer;
     bool ack_ok;
-    bool mem_ok;
+    bool data_ok;
+    bool has_new_event;
+    request data;
 
     void lru_write(uint64_t addr, uint32_t cpuid, LRU *lru);
 

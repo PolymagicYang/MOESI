@@ -20,10 +20,12 @@ enum op_type {
 };
 
 typedef struct request {
-    uint8_t cpu_id; // cpu no.
+    uint8_t sender_id; // cpu no.
+    uint8_t receiver_id;
     enum location source;
     enum location destination;
     enum op_type op;
+    bool has_data;
     uint64_t addr;
 
     request& operator=(const request& rhs) {
@@ -32,11 +34,12 @@ typedef struct request {
         destination = rhs.destination;
         op = rhs.op;
         addr = rhs.addr;
+        has_data = rhs.has_data;
         return *this;
     }
 
     bool operator==(const request& rhs) const {
-        return cpu_id == rhs.cpu_id && source == rhs.source && op == rhs.op && addr == rhs.addr && rhs.destination == destination;
+        return cpu_id == rhs.cpu_id && source == rhs.source && op == rhs.op && addr == rhs.addr && rhs.destination == destination && has_data == rhs.has_data;
     }
 } request;
 
@@ -74,7 +77,10 @@ inline void sc_trace(sc_trace_file*& f, const request_id& val, const std::string
 
 enum cache_status {
     invalid = 0,
-    valid = 1,
+    exclusive = 1,
+    shared = 2,
+    modified = 3,
+    owned = 4
 };
 
 typedef std::vector<request_id> bus_requests;
