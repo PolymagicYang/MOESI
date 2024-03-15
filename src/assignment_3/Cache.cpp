@@ -177,7 +177,6 @@ void Cache::lru_read(uint64_t addr, uint32_t cpuid, LRU* lru) {
             }
         }
 
-
         while (curr->status == cache_status::invalid) {
             curr->tag = tag;
             curr->has_data = false;
@@ -217,7 +216,6 @@ void Cache::lru_write(uint64_t addr, uint32_t cpuid, LRU* lru) {
     if (curr != nullptr) {
         sc_core::wait();
         log_addr(this->name(), "[WRITE HIT]", addr);
-
 
         switch (curr->status) {
             case invalid:

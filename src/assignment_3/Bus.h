@@ -82,7 +82,7 @@ public:
 
 private:
     bus_requests requests;
-    unordered_map<uint64_t, vector<int>> suspended_data_requests;
+    unordered_map<int, vector<int>> suspended_data_requests;
 };
 
 #endif //FRAMEWORK_BUS_H

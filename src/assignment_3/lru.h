@@ -81,8 +81,6 @@ public:
 
     void invalid(LRUnit* curr) {
         if (curr == nullptr) return;
-        cout << "[invalid_size_start]: " << to_string(this->size);
-        cout << " " << curr->tag;
 
         curr->status = cache_status::invalid;
         curr->has_data = false;
@@ -112,7 +110,6 @@ public:
             }
         }
 
-        cout << " [invalid_size_end]: " << to_string(this->size) << endl;
         // disconnect the adjacent nodes.
         curr->prev = nullptr;
         curr->next = nullptr;
