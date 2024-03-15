@@ -24,6 +24,7 @@ struct LRUnit {
     LRUnit *next;
     LRUnit *prev;
     cache_status status;
+    bool has_data;
 };
 
 class LRU {
@@ -34,12 +35,6 @@ public:
     explicit LRU(uint8_t capacity, uint8_t lru_index);
 
     ~LRU() { delete this->lines; };
-
-    op_type write(uint64_t tag, uint32_t _data, uint32_t);
-
-    op_type read(uint64_t tag, uint32_t);
-
-    void transition(cache_status target, uint64_t tag);
 
     bool get_status(uint64_t, cache_status*) const;
 
@@ -86,14 +81,18 @@ public:
 
     void invalid(LRUnit* curr) {
         if (curr == nullptr) return;
+        cout << "[invalid_size_start]: " << to_string(this->size);
+        cout << " " << curr->tag;
 
         curr->status = cache_status::invalid;
+        curr->has_data = false;
         this->size -= 1;
 
         if (this->head == this->tail && this->tail == curr && this->head == curr) {
             // len is 1.
             this->head = nullptr;
             this->tail = nullptr;
+
         } else if (this->head == curr && curr->next != nullptr) {
             // curr is the first one.
             this->head = curr->next;
@@ -113,6 +112,7 @@ public:
             }
         }
 
+        cout << " [invalid_size_end]: " << to_string(this->size) << endl;
         // disconnect the adjacent nodes.
         curr->prev = nullptr;
         curr->next = nullptr;
@@ -120,6 +120,7 @@ public:
 
     LRUnit *find(uint64_t tag) const {
         LRUnit *curr = this->head;
+
         while (curr != nullptr) {
             if (curr->tag == tag) {
                 return curr;
@@ -140,6 +141,7 @@ public:
 
     LRUnit* get_clean_node() const {
         for (uint8_t i = 0; i < this->capacity; i++) {
+            cout << "status : " << to_string(this->lines[i].status) << endl;
             if (this->lines[i].status == cache_status::invalid) {
                 return &this->lines[i];
             }
