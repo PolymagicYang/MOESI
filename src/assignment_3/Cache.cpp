@@ -64,7 +64,6 @@ void Cache::probe() {
         if (!exists) continue;
         request message = event;
         auto curr = lru->find(tag);
-        cout << "get status in probing threads, size: " + to_string(lru->size);
 
         switch (event.op) {
             case data_transfer:
@@ -85,11 +84,11 @@ void Cache::probe() {
                 switch (curr_status) {
                     case exclusive:
                         lru->find(tag)->status = cache_status::shared;
-                        log(this->name(), "[TRANSITION] From exclusive to shared,");
+                        log(this->name(), "[TRANSITION] Exclusive -> Shared,");
                         break;
                     case modified:
                         lru->find(tag)->status = cache_status::owned;
-                        log(this->name(), "[TRANSITION] From modified to owned,");
+                        log(this->name(), "[TRANSITION] Modified -> Owned,");
                         break;
                     default:
                         break;
@@ -98,26 +97,22 @@ void Cache::probe() {
 
             case probe_write:
                 // probe write hit.
-                cout << "write probe detected." << endl << endl;
                 switch (curr->status) {
                     case invalid:
                         break;
                     case exclusive:
-                        log(this->name(), "[TRANSITION] From exclusive to invalid,");
+                        log(this->name(), "[TRANSITION] Exclusive -> Invalid,");
                         break;
                     case shared:
-                        log(this->name(), "[TRANSITION] From shared to invalid,");
+                        log(this->name(), "[TRANSITION] Shared -> Invalid,");
                         break;
                     case modified:
-                        log(this->name(), "[TRANSITION] From modified to invalid,");
+                        log(this->name(), "[TRANSITION] Modified -> Invalid,");
                         break;
                     case owned:
-                        log(this->name(), "[TRANSITION] From owned to invalid,");
+                        log(this->name(), "[TRANSITION] Owned -> Invalid,");
                         break;
                 }
-                log(this->name(), "[INVALID Node]");
-                cout << endl;
-                log(this->name(), "[LRU size]", to_string(lru->size));
                 lru->invalid(lru->find(tag));
                 break;
 
@@ -161,22 +156,11 @@ void Cache::lru_read(uint64_t addr, uint32_t cpuid, LRU* lru) {
 
         if (lru->is_full()) {
             // Cache line eviction.
-            cout << "ready to replace." << endl << endl;
             curr = lru->tail;
-            if (lru->tail == nullptr) {
-                cout << "replace tail." << endl << endl;
-            }
-            cout << curr << endl;
-
-            log_addr(this->name(), "[REPLACE ADDR]", addr);
-
             if (curr->status == cache_status::modified || curr->status == cache_status::owned) {
                 // update the memory data.
-                cout << "read curr." << endl << endl;
                 uint64_t cache_addr = (curr->tag << 12) + (set_i << 5);
-                cout << "send to mem." << endl << endl;
                 this->send_write_memory(cache_addr);
-                cout << "send to mem end." << endl << endl;
                 // Wait until the data is written into the memory.
                 this->wait_ack();
                 this->wait_data();
@@ -185,13 +169,9 @@ void Cache::lru_read(uint64_t addr, uint32_t cpuid, LRU* lru) {
             log_addr(this->name(), "[TRANSITION] Invalidate data", addr);
             lru->invalid(curr);
             curr = lru->get_clean_node();
-
-            cout << "replace end." << endl << endl;
         } else {
             curr = lru->get_clean_node();
             if (curr == nullptr) {
-                log(this->name(), "[LRU Size when reading]", to_string(lru->size));
-                cout << *lru;
                 cout << "[ERROR]: find nullptr when get clean node." << endl;
                 return;
             }
@@ -203,7 +183,6 @@ void Cache::lru_read(uint64_t addr, uint32_t cpuid, LRU* lru) {
             curr->has_data = false;
             lru->push2head(curr);
             lru->size += 1;
-            cout << "send probe read." << endl << endl;
 
             this->send_probe_read(addr);
             wait_ack();
@@ -213,20 +192,18 @@ void Cache::lru_read(uint64_t addr, uint32_t cpuid, LRU* lru) {
                 case memory:
                     // Memory holds the recent data.
                     curr->status = cache_status::exclusive;
-                    log(this->name(), "[TRANSITION] From Invalid to Exclusive.");
+                    log(this->name(), "[TRANSITION] Invalid -> Exclusive.");
                     break;
                 case cache:
                     // Other caches hold the recent copy of the data.
-                    log(this->name(), "[TRANSITION] From Invalid to Shared.");
+                    log(this->name(), "[TRANSITION] Invalid -> Shared.");
                     curr->status = cache_status::shared;
                     break;
                 default:
                     break;
             }
             // Start waiting.
-            cout << "waiting data." << endl << endl;
             wait_data(); // The data in this cache may be invalidated by other caches later.
-            cout << "waiting data end." << endl << endl;
             curr->has_data = true;
         }
     }
@@ -239,28 +216,35 @@ void Cache::lru_write(uint64_t addr, uint32_t cpuid, LRU* lru) {
 
     if (curr != nullptr) {
         sc_core::wait();
-
         log_addr(this->name(), "[WRITE HIT]", addr);
-        this->send_probe_write(addr);
 
-        this->wait_ack();
 
-        if (curr->status == cache_status::shared) {
-            log(this->name(), "[TRANSITION] From shared to modified.");
-        } else {
-            log(this->name(), "[TRANSITION] From exclusive to modified.");
+        switch (curr->status) {
+            case invalid:
+                log(this->name(), "[ERROR] Write hit on invalid cache line.");
+                break;
+            case exclusive:
+                // Exclusive doesn't need a write probe broadcast.
+                log(this->name(), "[TRANSITION] Exclusive -> Modified.");
+                break;
+            case modified:
+                break;
+            case shared:
+                log(this->name(), "[TRANSITION] Shared -> Modified");
+            case owned:
+                log(this->name(), "[TRANSITION] Owned -> Modified");
+                this->send_probe_write(addr);
+                this->wait_ack();
+                break;
         }
 
         curr->status = modified; // After invalidating all the caches, we can mark it as modified.
-
         stats_writehit(cpuid);
         lru->push2head(curr);
     } else {
         // cache miss.
         log_addr(this->name(), "[WRITE MISS]", addr);
 
-        cout << *lru;
-        log(this->name(), "[LRU Size]", to_string(lru->size));
         stats_writemiss(cpuid);
 
         if (lru->is_full()) {
@@ -268,8 +252,6 @@ void Cache::lru_write(uint64_t addr, uint32_t cpuid, LRU* lru) {
             curr = lru->tail;
             if (curr->status == cache_status::modified || curr->status == cache_status::owned) {
                 // update the memory data.
-
-                log(this->name(), "replace");
                 uint64_t cache_addr = (curr->tag << 12) + (set_i << 5);
                 this->send_write_memory(cache_addr);
                 // Wait until the data is written into the memory.
@@ -277,13 +259,11 @@ void Cache::lru_write(uint64_t addr, uint32_t cpuid, LRU* lru) {
                 this->wait_data();
 
                 // After it writes the data back to the memory, it can't provide data anymore.
-                log(this->name(), "[TRANSITION] Write back, mark the cache as invalid.");
-                log(this->name(), "replace end");
+                log(this->name(), "[TRANSITION] Write back, mark the cache line as invalid.");
                 // We don't change the status immediately,
                 // because other caches that are read miss needs to read the data
                 // from this cache line.
             }
-            log_addr(this->name(), "[TRANSITION] Invalidate data", addr);
             lru->invalid(curr);
             curr = lru->get_clean_node();
 
@@ -301,36 +281,31 @@ void Cache::lru_write(uint64_t addr, uint32_t cpuid, LRU* lru) {
             lru->push2head(curr);
             lru->size += 1;
 
-            log(this->name(), "read data");
             this->send_probe_read(addr);
             wait_ack();
-            log(this->name(), "read ack");
 
             // Wait until the cache got the most recent copy of the data.
             switch (this->ack_from) {
                 case memory:
                     // Memory holds the recent data.
-                    log(this->name(), "[TRANSITION] Read the recent data out and from invalid to exclusive.");
+                    log(this->name(), "[TRANSITION] Invalid -> Exclusive.");
                     curr->status = cache_status::exclusive;
                     break;
                 case cache:
                     // Other caches hold the recent copy of the data.
-                    log(this->name(), "[TRANSITION] Read the recent data out and from invalid to shared.");
+                    log(this->name(), "[TRANSITION] Invalid to shared.");
                     curr->status = cache_status::shared;
                     break;
                 default:
                     break;
             }
             wait_data(); // The data in this cache may be invalidated by other caches later.
-            log(this->name(), "get data");
             curr->has_data = true;
         }
-        log(this->name(), "send probe write");
         this->send_probe_write(addr);
         this->wait_ack();
     }
 
-    log(this->name(), "[TRANSITION] Write data successfully, transition to modified.");
     curr->status = cache_status::modified;
 }
 

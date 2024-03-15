@@ -10,6 +10,7 @@
 #include "cache_if.h"
 #include <systemc.h>
 #include "helpers.h"
+#include "unordered_map"
 
 class Bus : public bus_if, public sc_module {
 public:
@@ -72,7 +73,6 @@ public:
                         break;
                 }
 
-                log(this->name(), "process data");
                 for (auto req_in_buffer : buffer) {
                     this->send_request(req_in_buffer);
                 }
@@ -82,6 +82,7 @@ public:
 
 private:
     bus_requests requests;
+    unordered_map<uint64_t, vector<int>> suspended_data_requests;
 };
 
 #endif //FRAMEWORK_BUS_H

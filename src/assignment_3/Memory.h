@@ -70,7 +70,6 @@ class Memory : public Memory_if, public sc_module {
                 response_id.source = location::memory;
                 this->bus->try_request(response_id);
 
-                log(this->name(), "Memory sends data back to", to_string(response.receiver_id));
                 this->wait_ack();
             } else {
                 wait();

@@ -141,7 +141,6 @@ public:
 
     LRUnit* get_clean_node() const {
         for (uint8_t i = 0; i < this->capacity; i++) {
-            cout << "status : " << to_string(this->lines[i].status) << endl;
             if (this->lines[i].status == cache_status::invalid) {
                 return &this->lines[i];
             }

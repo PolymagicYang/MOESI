@@ -22,7 +22,6 @@ location Bus::recent_data_location(uint64_t addr) {
 
 void Bus::send_request(request req) {
     auto data_location = this->recent_data_location(req.addr);
-    bool exists = false;
 
     switch (req.op) {
         case probe_read:
@@ -33,13 +32,12 @@ void Bus::send_request(request req) {
             }
             switch (data_location) {
                 case location::memory:
-                    cout << "go to mem" << endl;
                     this->send_to_cpus(req);
                     this->send_to_mem(req);
                     break;
                 default:
-                    cout << "go to cpu"  << endl;
                     int cpu_id = find_most_recent_data_holder(req.addr);
+                    log(this->name(), "Cache_", to_string(cpu_id), " has the most recent copy of data","");
                     req.op = op_type::data_transfer;
                     req.receiver_id = cpu_id;
                     this->send_to_cpus(req);
@@ -48,14 +46,11 @@ void Bus::send_request(request req) {
             break;
 
         case probe_write:
-            log(this->name(), "probe write");
             if (req.destination == location::all) {
-                log(this->name(), "send to all");
                 this->send_to_cpus(req); // Invalidate all the coherent cpus.
             }
 
             if (req.destination == location::memory) {
-                log(this->name(), "send to mem");
                 this->send_to_mem(req);
             };
 
@@ -109,7 +104,6 @@ void Bus::send_to_mem(request req) {
         default:
             break;
     }
-    log(this->name(), "write finish.");
 }
 
 void Bus::send_data_to_cpu(int cpu_id, request req) {
