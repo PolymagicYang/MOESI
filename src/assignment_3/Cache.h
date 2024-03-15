@@ -37,9 +37,9 @@ public:
 
     int cpu_write(uint64_t addr) override;
 
-    int ack() override;
+    int put_ack_from(location) override;
 
-    int finish_mem() override;
+    int ack() override;
 
     std::vector<request> get_requests() override;
 
@@ -70,6 +70,8 @@ public:
 
     bool get_cacheline_status(uint64_t addr, cache_status* curr_status) override;
 
+    bool has_data(uint64_t) override;
+
     void wait_ack() {
         auto start = sc_time_stamp().to_default_time_units();
         while (true) {
@@ -84,36 +86,15 @@ public:
         }
     }
 
-    request req_template(uint64_t addr, op_type op, location dest) {
+    request req_template(uint64_t addr, op_type op, location dest) const {
         request req;
         req.source = location::cache;
         req.sender_id = this->id;
-        req.has_data = false;
         req.addr = addr;
         req.op = op;
         req.destination = dest;
 
         return req;
-    }
-
-    void send_readhit(uint64_t addr) {
-        request req = req_template(addr, op_type::read_hit, location::cache);
-        this->send_buffer.push_back(req);
-    }
-
-    void send_readmiss(uint64_t addr) {
-        request req = req_template(addr, op_type::read_miss, location::memory);
-        this->send_buffer.push_back(req);
-    }
-
-    void send_writehit(uint64_t addr) {
-        request req = req_template(addr, op_type::write_hit, location::memory);
-        this->send_buffer.push_back(req);
-    }
-
-    void send_writemiss(uint64_t addr) {
-        request req = req_template(addr, op_type::write_miss, location::memory);
-        this->send_buffer.push_back(req);
     }
 
     void wait_data() {
@@ -134,10 +115,17 @@ private:
     bool data_ok;
     bool has_new_event;
     request data;
+    location ack_from;
 
     void lru_write(uint64_t addr, uint32_t cpuid, LRU *lru);
 
     void lru_read(uint64_t addr, uint32_t cpuid, LRU *lru);
+
+    void send_probe_read(uint64_t addr);
+
+    void send_probe_write(uint64_t addr);
+
+    void send_write_memory(uint64_t addr);
 };
 
 #endif

@@ -67,6 +67,7 @@ private:
             wait();
             // Finished the Tracefile, now stop the simulation
         }
+        log(this->name(), "finish");
         manager->finish();
     }
 };

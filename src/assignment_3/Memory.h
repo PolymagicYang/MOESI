@@ -62,15 +62,15 @@ class Memory : public Memory_if, public sc_module {
     void send() {
         while (true) {
             if ((!this->pipeline.empty()) && this->pipeline.front().cycles >= 100) {
-                cout << "send back" << endl;
                 auto response = this->pipeline.front().req;
                 this->pipeline.erase(this->pipeline.begin());
                 this->send_buffer.push_back(response);
 
                 request_id response_id;
-                response_id.cpu_id = response.cpu_id;
                 response_id.source = location::memory;
                 this->bus->try_request(response_id);
+
+                log(this->name(), "Memory sends data back to", to_string(response.receiver_id));
                 this->wait_ack();
             } else {
                 wait();
@@ -85,13 +85,14 @@ class Memory : public Memory_if, public sc_module {
                 this->requests.erase(this->requests.begin());
 
                 if (req.source != location::memory) {
-                    stats_memory_access(req.cpu_id, 1);
+                    stats_memory_access(req.sender_id, 1);
                     request response;
-                    response.cpu_id = req.cpu_id;
                     response.addr = req.addr;
                     response.source = location::memory;
                     response.destination = location::cache;
-                    response.op = req.op;
+                    response.receiver_id = req.sender_id;
+                    response.op = op_type::data_transfer;
+
                     this->pipeline.push_back(task{.req =  response, .cycles =  0, .start_time = sc_time_stamp()});
                 }
             }

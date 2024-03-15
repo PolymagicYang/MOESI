@@ -12,7 +12,6 @@
 #include "psa.h"
 #include "Bus.h"
 #include "Memory.h"
-#include "ParallelMemory.h"
 
 using namespace std;
 
@@ -42,17 +41,16 @@ int sc_main(int argc, char *argv[]) {
         auto bus = new Bus("Bus");
         auto dispatcher = new Manager(sc_gen_unique_name("manager"));
 
-        bus->clock(clk);
-        memory->clk(clk);
-        dispatcher->clock(clk);
-
-        memory->bus(*bus);
-
-        bus->memory(*memory);
-
         sc_buffer<request> request_buffer;
         sc_signal<bool> start_signal;
 
+        memory->clk(clk);
+        memory->bus(*bus);
+        dispatcher->clock(clk);
+
+        bus->clock(clk);
+        bus->memory(*memory);
+        bus->CachePort(request_buffer);
         dispatcher->start(start_signal);
         /*
         * bus and cache should connects to the Manager.

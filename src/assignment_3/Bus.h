@@ -16,7 +16,7 @@ public:
     sc_port<Memory_if> memory;
     sc_in_clk clock;
     std::vector<sc_port<cache_if>> caches;
-    sc_signal<request> CachePort;
+    sc_out<request> CachePort;
 
     int try_request(request_id) override;
 
@@ -51,21 +51,28 @@ public:
 
     void execute() {
         while (true) {
+            wait();
             if (this->requests.empty()) {
-                wait();
+                continue;
             } else {
                 // there are requests in the queue, fetching the requests.
                 auto req = this->get_next_request_id();
                 vector<request> buffer;
+
                 switch (req.source) {
                     case location::memory:
                         buffer = this->memory->get_requests();
+                        this->memory->ack();
                         break;
                     case location::cache:
                         buffer = this->caches[req.cpu_id]->get_requests();
+                        this->caches[req.cpu_id]->ack();
+                        break;
+                    default:
                         break;
                 }
 
+                log(this->name(), "process data");
                 for (auto req_in_buffer : buffer) {
                     this->send_request(req_in_buffer);
                 }
