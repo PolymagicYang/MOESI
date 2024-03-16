@@ -27,8 +27,8 @@ void Bus::send_request(request req) {
         cpu_id = find_most_recent_data_holder(req.addr);
     }
     if (cpu_id == req.sender_id) {
+        data_location = location::memory;
     }
-    data_location = location::memory;
 
     switch (req.op) {
         case probe_read:
@@ -41,21 +41,15 @@ void Bus::send_request(request req) {
                     break;
                 default:
                     if (!this->caches[cpu_id]->has_data(req.addr)) {
-                        // If the data holder doesn't have the data, the data should be suspended until it receives the data.
-                        // The cache write action will also send a read request, and it will hold a valid data,
-                        // so we can't let it request itself.
-                        log(this->name(), "[INSERT]", to_string(req.sender_id), "wait", to_string(cpu_id));
-                        if (this->suspended_data_requests.find(cpu_id) == this->suspended_data_requests.end()) {
-                            this->suspended_data_requests.insert({cpu_id, vector<int>()});
-                        }
-                        (&this->suspended_data_requests[cpu_id])->push_back(req.sender_id);
+                        this->send_to_cpus(req);
+                        this->send_to_mem(req);
                     } else {
-                        log(this->name(), "Cache_", to_string(cpu_id), " has the most recent copy of data","");
+                        log(this->name(), "Cache_", to_string(cpu_id), " has the most recent copy of the data","");
                         req.op = op_type::data_transfer;
                         req.receiver_id = cpu_id;
+                        this->send_to_cpus(req);
                     }
 
-                    this->send_to_cpus(req);
                     break;
             }
             break;
@@ -73,18 +67,7 @@ void Bus::send_request(request req) {
 
         case data_transfer:
             // read data from memory or cache.
-            auto suspended_cpus = this->suspended_data_requests[req.receiver_id];
             this->send_data_to_cpu(req.receiver_id, req);
-
-            bool sent = false;
-            for (auto receiver_id : suspended_cpus) {
-                log(this->name(), "[INSERT] end", to_string(receiver_id));
-                this->send_data_to_cpu(receiver_id, req);
-                sent = true;
-            }
-            if (sent) {
-                this->suspended_data_requests.erase(this->suspended_data_requests.find(req.receiver_id));
-            }
     }
 }
 

@@ -333,9 +333,6 @@ void Cache::lru_write(uint64_t addr, uint32_t cpuid, LRU* lru) {
             wait_data(); // The data in this cache may be invalidated by other caches later.
             log_addr(this->name(), "[wait] end", addr);
 
-            if (curr->status == cache_status::invalid) {
-                cout << "BeInvali" << endl;
-            }
             curr->has_data = true;
         }
         curr->status = cache_status::modified;
