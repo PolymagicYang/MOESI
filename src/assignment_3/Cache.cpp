@@ -113,7 +113,10 @@ void Cache::probe() {
                         log(this->name(), "[TRANSITION] Owned -> Invalid,");
                         break;
                 }
+                log(this->name(), "[INVALIDATE] size before", to_string(lru->size));
+                log_addr(this->name(), "[INVALIDATE]", addr);
                 lru->invalid(lru->find(tag));
+                log(this->name(), "[INVALIDATE] size after", to_string(lru->size));
                 break;
 
             default:
@@ -139,12 +142,16 @@ std::vector<request> Cache::get_requests() {
 void Cache::lru_read(uint64_t addr, uint32_t cpuid, LRU* lru) {
     uint64_t tag = (addr >> 5) / NR_SETS;
     uint64_t set_i = (addr >> 5) % NR_SETS;
-    LRUnit *curr = lru->find(tag);
 
+    LRUnit *curr = lru->find(tag);
+    if (curr != nullptr) {
+        // hit, but the cache line may be invalidated after waiting.
+        sc_core::wait();
+    }
+
+    curr = lru->find(tag);
     if (curr != nullptr) {
         // cache hits.
-        sc_core::wait();
-
         log_addr(this->name(), "[READ HIT]", addr);
 
         stats_readhit(cpuid);
@@ -163,48 +170,57 @@ void Cache::lru_read(uint64_t addr, uint32_t cpuid, LRU* lru) {
                 this->send_write_memory(cache_addr);
                 // Wait until the data is written into the memory.
                 this->wait_ack();
+
+                log_addr(this->name(), "[wait]", addr);
                 this->wait_data();
+                log_addr(this->name(), "[wait] end", addr);
             }
 
             log_addr(this->name(), "[TRANSITION] Invalidate data", addr);
             lru->invalid(curr);
             curr = lru->get_clean_node();
+
         } else {
             curr = lru->get_clean_node();
+            cout << *lru;
+            cout << to_string(lru->size) << endl;
+
+            for (int i = 0; i < lru->capacity; i++) {
+                cout << to_string(lru->lines[i].index) << " " << to_string(lru->lines[i].status) << endl;
+            }
             if (curr == nullptr) {
-                cout << "[ERROR]: find nullptr when get clean node." << endl;
-                return;
+                cout << "[ERROR]: find nullptr when get clean node when read." << endl;
             }
         }
 
-        while (curr->status == cache_status::invalid) {
-            curr->tag = tag;
-            curr->has_data = false;
-            lru->push2head(curr);
-            lru->size += 1;
+        curr->tag = tag;
+        curr->has_data = false;
+        lru->push2head(curr);
+        lru->size += 1;
 
-            this->send_probe_read(addr);
-            wait_ack();
+        this->send_probe_read(addr);
+        wait_ack();
 
-            // Wait until the cache got the most recent copy of the data.
-            switch (this->ack_from) {
-                case memory:
-                    // Memory holds the recent data.
-                    curr->status = cache_status::exclusive;
-                    log(this->name(), "[TRANSITION] Invalid -> Exclusive.");
-                    break;
-                case cache:
-                    // Other caches hold the recent copy of the data.
-                    log(this->name(), "[TRANSITION] Invalid -> Shared.");
-                    curr->status = cache_status::shared;
-                    break;
-                default:
-                    break;
-            }
-            // Start waiting.
-            wait_data(); // The data in this cache may be invalidated by other caches later.
-            curr->has_data = true;
+        // Wait until the cache got the most recent copy of the data.
+        switch (this->ack_from) {
+            case memory:
+                // Memory holds the recent data.
+                curr->status = cache_status::exclusive;
+                log(this->name(), "[TRANSITION] Invalid -> Exclusive.");
+                break;
+            case cache:
+                // Other caches hold the recent copy of the data.
+                log(this->name(), "[TRANSITION] Invalid -> Shared.");
+                curr->status = cache_status::shared;
+                break;
+            default:
+                break;
         }
+        // Start waiting.
+        log_addr(this->name(), "[wait]", addr);
+        wait_data(); // The data in this cache may be invalidated by other caches later.
+        log_addr(this->name(), "[wait] end", addr);
+        curr->has_data = true;
     }
 }
 
@@ -212,10 +228,15 @@ void Cache::lru_write(uint64_t addr, uint32_t cpuid, LRU* lru) {
     uint64_t tag = (addr >> 5) / NR_SETS;
     uint64_t set_i = (addr >> 5) % NR_SETS;
     LRUnit *curr = lru->find(tag);
+    if (curr != nullptr) {
+        // hit, but the cache line may be invalidated after waiting.
+        sc_core::wait();
+    }
+    curr = lru->find(tag);
 
     if (curr != nullptr) {
-        sc_core::wait();
         log_addr(this->name(), "[WRITE HIT]", addr);
+        log_addr(this->name(), to_string(curr->status), addr);
 
         switch (curr->status) {
             case invalid:
@@ -229,6 +250,9 @@ void Cache::lru_write(uint64_t addr, uint32_t cpuid, LRU* lru) {
                 break;
             case shared:
                 log(this->name(), "[TRANSITION] Shared -> Modified");
+                this->send_probe_write(addr);
+                this->wait_ack();
+                break;
             case owned:
                 log(this->name(), "[TRANSITION] Owned -> Modified");
                 this->send_probe_write(addr);
@@ -236,9 +260,12 @@ void Cache::lru_write(uint64_t addr, uint32_t cpuid, LRU* lru) {
                 break;
         }
 
-        curr->status = modified; // After invalidating all the caches, we can mark it as modified.
+        if (curr->status != invalid) {
+            curr->status = modified; // After invalidating all the caches, we can mark it as modified.
+            lru->push2head(curr);
+        }
         stats_writehit(cpuid);
-        lru->push2head(curr);
+
     } else {
         // cache miss.
         log_addr(this->name(), "[WRITE MISS]", addr);
@@ -254,7 +281,10 @@ void Cache::lru_write(uint64_t addr, uint32_t cpuid, LRU* lru) {
                 this->send_write_memory(cache_addr);
                 // Wait until the data is written into the memory.
                 this->wait_ack();
+
+                log_addr(this->name(), "[wait]", addr);
                 this->wait_data();
+                log_addr(this->name(), "[wait] end", addr);
 
                 // After it writes the data back to the memory, it can't provide data anymore.
                 log(this->name(), "[TRANSITION] Write back, mark the cache line as invalid.");
@@ -267,9 +297,10 @@ void Cache::lru_write(uint64_t addr, uint32_t cpuid, LRU* lru) {
 
         } else {
             curr = lru->get_clean_node();
+            cout << lru;
+            cout << to_string(lru->size) << endl;
             if (curr == nullptr) {
-                cout << "[ERROR]: find nullptr when get clean node." << endl;
-                return;
+                cout << "[ERROR]: find nullptr when get clean node when write." << endl;
             }
         }
 
@@ -297,14 +328,20 @@ void Cache::lru_write(uint64_t addr, uint32_t cpuid, LRU* lru) {
                 default:
                     break;
             }
+
+            log_addr(this->name(), "[wait]", addr);
             wait_data(); // The data in this cache may be invalidated by other caches later.
+            log_addr(this->name(), "[wait] end", addr);
+
+            if (curr->status == cache_status::invalid) {
+                cout << "BeInvali" << endl;
+            }
             curr->has_data = true;
         }
+        curr->status = cache_status::modified;
         this->send_probe_write(addr);
         this->wait_ack();
     }
-
-    curr->status = cache_status::modified;
 }
 
 void Cache::send_probe_read(uint64_t addr) {
@@ -321,6 +358,8 @@ void Cache::send_probe_read(uint64_t addr) {
 void Cache::send_probe_write(uint64_t addr) {
     request req = req_template(addr, op_type::probe_write, location::all);
     this->send_buffer.push_back(req);
+
+    log_addr(this->name(), "send probe", addr);
 
     request_id rid;
     rid.source = location::cache;

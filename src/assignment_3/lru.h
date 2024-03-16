@@ -81,6 +81,7 @@ public:
 
     void invalid(LRUnit* curr) {
         if (curr == nullptr) return;
+        if (curr->status == cache_status::invalid) return;
 
         curr->status = cache_status::invalid;
         curr->has_data = false;

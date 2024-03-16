@@ -27,8 +27,8 @@ void Bus::send_request(request req) {
         cpu_id = find_most_recent_data_holder(req.addr);
     }
     if (cpu_id == req.sender_id) {
-        data_location = location::memory;
     }
+    data_location = location::memory;
 
     switch (req.op) {
         case probe_read:
@@ -49,11 +49,12 @@ void Bus::send_request(request req) {
                             this->suspended_data_requests.insert({cpu_id, vector<int>()});
                         }
                         (&this->suspended_data_requests[cpu_id])->push_back(req.sender_id);
-                        break;
+                    } else {
+                        log(this->name(), "Cache_", to_string(cpu_id), " has the most recent copy of data","");
+                        req.op = op_type::data_transfer;
+                        req.receiver_id = cpu_id;
                     }
-                    log(this->name(), "Cache_", to_string(cpu_id), " has the most recent copy of data","");
-                    req.op = op_type::data_transfer;
-                    req.receiver_id = cpu_id;
+
                     this->send_to_cpus(req);
                     break;
             }
