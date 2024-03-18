@@ -1,162 +1,342 @@
-# Lab Report: Cache Coherency
+# Lab3 Report: Implement the MOESI Protocol
 
 * Student: Zhiyang Wang
 * Student ID: 15327388
 
 ### Introduction
-In this assignment I will use SystemC to build a simulator of a Level-1 Data-cache and various implementations of a cache coherency protocol and evaluate their performance.
-In Assignment 1, I implemented a single 32kB 8-way set-associative L1 D-cache with a 32-byte line size, featuring a least-recently-used (LRU) write-back replacement strategy together with an allocate-on-write policy. The LRU policy is implemented by an array-based doubly linked list, and the memory access and the cache access are simulated with different latencies (100s and 1s, respectively).
-### Implmentation of a Single Cache
-##### Decomposing a 64-Bit Address for Cache Management
-For a 64-bit address, we can partition it into three components to accommodate our 32kB 8-way set-associative cache: the tag, set index, and block offset.
-1. block offset
-The cache line size is 32 bytes long, we need a offset to determine the location of the byte in the cache line. To allocate the requested byte by the address, we need at least 5 bits to represent the offset of the byte in the cache line. In my code, I use a bitmask to extract the block offset part from the address.
+In this lab, I implemented the MOESI protocol for multicore processor systems. The MOESI protocol is designed to maintain cache coherence by ensuring that every cache line is in one of the following states: Modified, Owned, Exclusive, Shared, or Invalid. Like in previous labs, the cache uses the Least Recently Used (LRU) method for eviction, combined with a write-back policy
+### Components implementations
+I updated the bus system and certain aspects of the cache while keeping the rest of the components the same with previous labs. To better handle messages from other caches, I introduced probe threads. These threads manage changes in cache line states and perform cache-to-cache data transfers based on incoming messages.
+To address timing issues, I added a write buffer to the cache. Since both the cache probe thread and the bus operate during the negative clock edge, placing messages directly into the bus queue could lead to conflicts. By using a write buffer, messages are queued and then sent out on the next positive clock edge, avoiding these issues.
+I also implemented new interfaces in the cache to allow other components to easily access cache line information, enhancing system interoperability.
+The bus logic has been streamlined to efficiently process only three types of operations: read probe, write probe, and data-transfer. For read probe, the bus identifies the most current data holder and routes the data appropriately. Write operations are directed based on the intended recipient: they can either be broadcast to all or specifically sent to memory. Data transfer operations are simplified to send data directly to the requester, whether it’s from another cache or memory, thereby reducing unnecessary data broadcasting.
+The 'burst' concept introduced in my previous lab has been discontinued due to its inferior performance and the difficulties it presents when applied within the MOESI protocols.
+
+### Model Impelemntations
+##### Bus-Master Probes and Cache Coherency State Transitions in MOESI Protocol defined in AMD64 MOESI Specs:
+*There are two general types of bus-master probes:*
+*1. Read probes indicate the external master is requesting the data for read purposes.*
+*2. Write probes indicate the external master is requesting the data for the purpose of modifying it.*
+*State transitions involving read misses and write misses can cause the processor to generate probes into external bus masters and to read main memory.*
+*Read hits do not cause a MOESI-state change. Write hits generally cause a MOESI-state change into the modified state. If the cache line is already in the modified state, a write hit does not change its state.*
+
+##### Cache Coherency State Transitions Implementation
+The bus operations within this implementation adhere to the protocols specified in the AMD64 manual. Specifically, bus interactions are initiated only during read misses, write misses, and certain write hits. Conversely, read hits and most write hits do not trigger bus operations since there is no necessity to access memory data. 
+##### States Transition On Hits
+For read hits, the cache line's data is already available locally, eliminating the need to notify other caches of the read operation. The behavior for write hits, however, varies depending on the cache line's current state. If the cache line is in an exclusive or modified state, it implies only ownership of the current version of the data, and therefore, there is no requirement to broadcast a write probe to invalidate other caches. On the other hand, if the cache line is in a shared or owned state, it implies that the data is not unique to this cache, which means it needs to send write probes to invalidate the other caches that share the data.
+Whenever the cache line probe thread detects a write probe from another cache, it will invalidate the corresponding cache line. This invalidation process occurs on the falling edge of the clock cycle.
+
+##### States Transition On Read Miss 
+This read probe only occurs when there's a read miss or write miss (depends on my implementation), and it depends on the state in the other caches. The cache sends out a read probe to the bus, and the bus checks to see which cache has the most up-to-date data for that particular address. If no cache currently has the data, the bus requests it from the main memory. If a cache does have the data, it responds to the read probe. If the responding cache's state for the cache line was 'Exclusive', it will change it to 'Shared'. If the cache line was 'Modified', it will change to 'Owned'. If the responding cache had the cache line in 'Owned' or 'Shared' state already, the state remains unchanged.
+
+##### States Transition On Write Miss
+I convert a write miss to a WB memory type into two separate MOESI-state changes. Initially, a read miss moves the cache line to either the exclusive or shared state. This is followed by a write hit. If the cache line is in the shared state during the write, a write probe is sent to other caches to update their status; however, if the cache line is in the exclusive state, there's no need to send out invalidation messages to other caches. Implementing the process this way lightens the logical workload and simplifies the bus dispatch logic.
+
+##### States Transition When Evict the LRU Cache Line
+When the cache line becomes full and needs to evict a cache line, it does so using the Least Recently Used (LRU) method. If the cache line being evicted is in a modified or owned state, its data must be written back to memory. In my implementation, while writing data to the cache line, it retains its owned or modified state, allowing other caches to continue accessing the correct data from it. Once the evicted cache line has written its data to memory, its state is changed to invalid, enabling other caches to read the most up-to-date data from memory.
+
+#### Edge Cases
+##### Read Race Conditions
+In the MOESI design, a situation may arise where a cache sends a request to another cache believed to be in the correct state to provide the data. However, the targeted cache might still be awaiting the data from memory. This scenario is common in read race conditions, where the cache declared as the winner in read races is granted exclusive status before it actually receives the data, making the memory the true holder of the most recent data. Despite this, the bus will send a read probe to the exclusive cache, compelling it to update its state to shared appropriately, but it will direct the request for the actual data to the memory to ensure the retrieval of the most current data.
+
+##### Write Back Race Condition (Invalid -> Modified)
+Since the Write-Back (WB) action is decomposed into read miss and write hit, this situation is close to the upcoming scenario (Write Hit Race Condition) and can be addressed within that context.
+
+##### Write Hit Race Conditions
+When multiple caches attempt to write to a cache line that is currently shared, race conditions arise. In such cases, only one cache should successfully complete its write operation, essentially 'winning' the race. Consequently, all other caches must invalidate their versions of the cache line and initiate a write miss procedure. This cycle repeats until no copies of the cache line remain in a shared state, ensuring that at any given time, only one cache holds the cache line in a modified state.
+###### Sanity Test:
+The test file is named as ./4_proc_write_race.trf
+(P0, READ, 0)
+(P1, READ, 0)
+(P2, READ, 0)
+(P3, READ, 0)
+1000 nops
+
+(P1, WRITE, 0)
+3 nops
+(P2, WRITE, 0)
+3 nops
+(P3, WRITE, 0)
+3 nops
+(P0, WRITE, 0)
+
+The test file is designed to bring all cache lines to a shared state before initiating simultaneous writes. This setup triggers write miss race conditions within the system, as each cache must secure the most up-to-date data for writing. This involves reading the latest data from the cache that wins the race then modifiy the data, since other caches might have already obtained the data from the winner. Subsequent write attempts will invalidate earlier ones.
+To ensure that these restarts from write misses do not impact the system's hit rate, I implemented a flag to determine the hit rate statistics independently. The anticipated hit rate is calculated to be 50%, derived from each processor experiencing one read miss followed by one write hit.
+
+Highlights output for each processors:
+p0:
+00000 s: cache_0: [READ MISS]
+0002 ns: cache_0: [TRANSITION] Invalid -> Exclusive.
+2500 ps: cache_0: [TRANSITION] Exclusive -> Shared,
+0103 ns: cache_0: [DATA TRANSFER] Read data from memory.
+1107 ns: cache_0: [WRITE HIT]
+1108 ns: cache_0: [TRANSITION] Shared -> Modified
+1108500 ps: cache_0: [TRANSITION] Modified -> Invalid
+
+p1:
+00000 s: cache_1: [READ MISS]
+0005 ns: cache_1: [TRANSITION] Invalid -> Shared.
+0106 ns: cache_1: [DATA TRANSFER] Read data from another cache.
+1107 ns: cache_1: [WRITE HIT]
+1107500 ps: cache_1: [TRANSITION] Shared -> Invalid,
+1110 ns: cache_1: [WRITE RACE DETECTED] Restart from a write miss.
+1110 ns: cache_1: [WRITE MISS]
+1112 ns: cache_1: [TRANSITION] Invalid -> Exclusive.
+1112500 ps: cache_1: [TRANSITION] Exclusive -> Shared,
+1213 ns: cache_1: [DATA TRANSFER] Read data from memory.
+1215 ns: cache_1: [TRANSITION] Shared to Modified.
+1216500 ps: cache_1: [TRANSITION] Modified -> Invalid
+
+p2:
+00000 s: cache_2: [READ MISS]
+0004 ns: cache_2: [TRANSITION] Invalid -> Shared.
+0105 ns: cache_2: [DATA TRANSFER] Read data from another cache.
+1107 ns: cache_2: [WRITE HIT]
+1107500 ps: cache_2: [TRANSITION] Shared -> Invalid,
+1111 ns: cache_2: [WRITE RACE DETECTED] Restart from a write miss.
+1111 ns: cache_2: [WRITE MISS]
+1113 ns: cache_2: [TRANSITION] Invalid to Shared.
+1214 ns: cache_2: [DATA TRANSFER] Read data from another cache.
+1214500 ps: cache_2: [TRANSITION] Shared -> Invalid,
+1217 ns: cache_2: [WRITE RACE DETECTED] Restart from a write miss.
+1217 ns: cache_2: [WRITE MISS]
+1219 ns: cache_2: [TRANSITION] Invalid to Shared.
+1320 ns: cache_2: [DATA TRANSFER] Read data from another cache.
+1320500 ps: cache_2: [TRANSITION] Shared -> Invalid,
+1322 ns: cache_2: [WRITE RACE DETECTED] Restart from a write miss.
+1322 ns: cache_2: [WRITE MISS]
+1323 ns: cache_2: [TRANSITION] Invalid -> Exclusive.
+1424 ns: cache_2: [DATA TRANSFER] Read data from memory.
+1424 ns: cache_2: [TRANSITION] Exclusive to Modified.
+
+p3:
+00000 s: cache_3: [READ MISS]
+0003 ns: cache_3: [TRANSITION] Invalid -> Shared.
+0104 ns: cache_3: [DATA TRANSFER] Read data from another cache.
+1107 ns: cache_3: [WRITE HIT]
+1107500 ps: cache_3: [TRANSITION] Shared -> Invalid,
+1112 ns: cache_3: [WRITE RACE DETECTED] Restart from a write miss.
+1112 ns: cache_3: [WRITE MISS]
+1114 ns: cache_3: [TRANSITION] Invalid to Shared.
+1214500 ps: cache_3: [TRANSITION] Shared -> Invalid,
+1216 ns: cache_3: [DATA TRANSFER] Read data from another cache.
+1216 ns: cache_3: [WRITE RACE DETECTED] Restart from a write miss.
+1218 ns: cache_3: [TRANSITION] Invalid -> Exclusive.
+1218500 ps: cache_3: [TRANSITION] Exclusive -> Shared,
+1319 ns: cache_3: [DATA TRANSFER] Read data from memory.
+1321 ns: cache_3: [TRANSITION] Shared to Modified.
+1321500 ps: cache_3: [TRANSITION] Modified -> Invalid
+
+The test results indicate that with four processors, the latency is 100ns. This outcome arises because my design partially addresses the issue. Ideally, the winning processor should cancel the write probes of others, allowing processors that need to restart to directly read up-to-date data from the cache, thereby maintaining data correctness. Although my design's performance does not match that of the ideal solution, it still behaves as expected. This is because, upon a restart, if a write operation invalidates all other caches, the most current data indeed resides in the memory, preventing any cache from accessing outdated information from a previous winner.
+Regarding the number of restarts, the outcome aligns with my predictions: Cache_0, being the initial winner, does not require a restart. Processor 1, as the second winner, restarts once. Processor 3, the third winner, undergoes two restarts, while Processor 4 is the last to write, following the anticipated sequence.
+
+##### Reading data when eviction
+When the LRU (Least Recently Used) system evicts a cache line that is in an owned or modified state, it's important to maintain the state of that cache line until its data has been successfully written back to memory. This is because the memory's copy of the data is outdated, and the cache may still need to respond to read requests from other caches with the most current data. Implementing a test trace for this scenario is challenging, so I have only provided the expected behavior.
+
+### Test Cases
+##### Shared to Invalid
 ```
-size_t offset = (addr & 0b11111);
+P0 READ 0
+P1 READ 0
+P2 READ 0
+P3 READ 0
+
+200 nops
+
+P0 WRITE 0
+P1 nops
+P2 nops
+P3 nops
 ```
-2. set index
-The cache is organized into 8-way sets with a total capacity of 32kB, and each set contains eight cache lines, each 32 bytes in size. I need this part of number to get the location of the cache set, and the total number of sets can be calculated as $ (32 \times 1024 \div (32 \times 8)) = 128$. I need at least 7 bits to represent the set index in the cache, I didn't use bitmask to extract the set part but the '%' operation in the code functions the same as masking the lower 7 bits. 
-```
-static const size_t NR_SETS = CACHE_SIZE / (SET_SIZE * BLOCK_SIZE);
-...
-uint64_t set_i = (addr >> 5) % NR_SETS; // NR_SETS is 128.
-```
-3. tag
-This section represents the remainder of the address, which amounts to 64 - (bits for the set index) - (bits for the offset) = 64 - (7 + 5) = 52 bits. Tags are utilized to identify the appropriate cache line within the 8-way sets. If the tags match, it indicates that the data resides in this cache. Otherwise, it signifies the necessity to either evict the least recently used (LRU) cache line or occupy a new one.
-```
-uint64_t tag = (addr >> 5) / NR_SETS;
-```
-##### Implementation of the LRU policies
-I desgined an array-based doubly linked list to implement the LRU (Least Recently Used) policy, it uses a head that points to the most recently used LRU unit at the front of the linked list, and a tail that points to the least recently used unit at the end. Whenever a cache line is accessed, it is virtually moved to the front of the list. This process involves no actual data movement; instead, the 'prev' and 'next' pointers are adjusted to maintain the units' positions within the list, and the units themselves remain fixed in their array positions, and the linked list structure is defined as follow.
-Whenever a tag mismatch occurs and the cache lines are fully occupied, the tail element of the linked list can be evicted to leave a new space for the new data.
 
-```
-struct LRUnit {
-    bool dirty;
-    uint8_t index;
-    uint64_t tag;
-    uint8_t data[BLOCK_SIZE];
-    LRUnit* next;
-    LRUnit* prev;
-};
+| Manager | Reads | RHit | RMiss | Writes | WHit | WMiss | Hitrate  | MAccessTime | WaitBus |
+|---------|-------|------|-------|--------|------|-------|----------|-------------|---------|
+| 0       | 1     | 0    | 1     | 1      | 1    | 0     | 50.000000| 1           | 1.500000|
+| 1       | 1     | 0    | 1     | 0      | 0    | 0     | 0.000000 | 1           | 5.000000|
+| 2       | 1     | 0    | 1     | 0      | 0    | 0     | 0.000000 | 1           | 4.000000|
+| 3       | 1     | 0    | 1     | 0      | 0    | 0     | 0.000000 | 1           | 3.000000|
 
-...
-class LRU {
-    ...
-    LRUnit* head;
-    LRUnit* tail;
-    LRUnit* lines;
-    uint8_t lru_index;
-}
-```
-##### Implementation of the write back and allocate-on-write policy
-The write-back policy indicates that data in a cache line is written back to memory only if the "dirty" flag for that cache line is set to true at the time of eviction as demonstrated in the previous code. In my code, this model is showed when handling dirty cache lines during eviction:
-1. If a cache line is marked as dirty (curr->dirty is true), it indicates that the cache line has been modified but not yet written back to the main memory.
-2. Before evicting a dirty cache line (to make space for a new one or due to an LRU policy), the code simulates a write-back operation with a latency (sc_core::wait(100)). This latency represents the time taken to write the dirty cache line back to the main memory. 
+Latency: 310 ns
 
-The allocate-on-write policy indicates that every write miss we need to fetch the data from the memory and allocate a new space for it in the cache, so I use 100-second latency to simulate the allocation operation after every write miss.
-1. On a write miss, the code simulates a memory reading, and then the code checks if the cache is full. If not, it allocates a new cache line (this->lines[this->size]) and updates it with the new tag and marks it as dirty, indicating that it contains data not yet written to the main memory.
-2. If the cache is full, it evicts the least recently used (LRU) cache line, this involes some latencies. If the evicted cache line is dirty, it first simulates writing back to the main memory before allocating the cache line to the new data, we also need to mark the new cache line as dirty.
+Initially, all cache lines transition into shared states, followed by a 100 ns delay. 200 ns later, a write operation by one of the caches triggers the invalidation of the others. As a result, all caches experience a read miss initially. However, only one cache eventually achieves a write hit, aligning the hit rate with expectations.
 
-For each cache hit, the code simulates cache access for simplicity. Since the cache access time is significantly shorter than memory access time, the code does not simulate additional cache latency in further operations after the inital latency.
-
-
-##### Performance of a Single Cache
-| tracefiles | readmiss | readhit | writemiss | writehit | hitrate | latency |
-|-----------------------|--------------------------|--------------------------|--------------------------|---------------------------|---------------------------|---------------------------|
-| dbg_p1                   | 21 | 19 | 34 | 26 | 45.000000 | 5645 ns |
-| fft_1024_p1              | 2982 | 503437 | 994 | 152997 | 99.397950 | 1759444 ns |
-| matrix_mult_50_50_p1     | 939 | 1631711 | 2 | 255148 | 99.950154 | 3868759 ns |
-| matrix_vector_200_200_p1 | 10053 | 631147 | 52 | 80748 | 98.600416 |  2448895 ns |
-| matrix_vector_5000_8_p1  | 10005 | 659995 | 1252 | 659995 | 98.538052 | 2768143 ns |
-| matrix_vector_8_5000_p1  | 20003 | 620045 | 12 | 80020 | 97.220448 | 4162740 ns |
-
-The results indicate a high hit rate when data operations adhere to spatial and temporal locality principles. With its configuration (8-way set associative LRU with write back and write allocate policies), the cache achieves an average hit rate of above 98 percent across most trace files.
-
-### Model Design
-This model supports multi-processor acesses, requiring caches to invalidate corresponding cache lines when memory updates occur to ensure consistency. The processor is designed with the following configuration: it employs both read-allocate and write-allocate strategies, utilizes a write-through caching policy, and features an 8-way set associative cache that is managed using a Least Recently Used (LRU) policy.
-The simulation consists of various components:
-1. **Manager (Dispatcher):** This component initiates the system, controls its termination, assigns IDs to each CPU, creates the specified number of CPUs, and ends the system once every CPU has completed its tasks.
-2. **CPU:** This component process operations from a trace file based on its ID, distinguishing between read, write, and no-operation (nop) tasks. It uses the cache interface for reading or writing data.
-3. **Cache:** This component manages cache line states, synchronizes actions with other caches, accesses memory, and communicates over the bus.
-4. **Bus:** This component handles requests from other parts (such as Cache and Memory), retrieving requests from a queue and dispatching them based on their source and destination at the negative edge of a cycle.
-5. **Memory:** Simulating 100-cycle memory access operations, this component fetches memory access requests from a queue at the positive edge of a cycle, waits for 100 cycles, and then sends the access results back to the requesting component via the bus.
-
-### Implementation Details
-##### Message
-Message is composed of two components: request and request_id
-```
-typedef struct request {
-    uint8_t cpu_id; // cpu no.
-    enum location source;
-    enum location destination;
-    enum op_type op;
-    uint64_t addr;
-} request;
-
-typedef struct request_id {
-    uint8_t cpu_id; // cpu no.
-    enum location source;
-} request_id;
+##### Owned to Invalid
 
 ```
-The communication protocol uses two structs to facilitate burst requests, which are stored in the write buffers of both the cache and memory. Each request is identified by a request_id, allowing it to be located in the appropriate write buffer in the cache or memory. A burst request is a single atomic operation that consists of several individual requests, designed to be executed without interruption by other requests.
-Each request encapsulates all essential information required for data transfer and state transitions, enabling the bus to route messages according to their origin and destination. Priority is implicitly determined by the source of the request, eliminating the need for an explicit priority flag.
-##### Cache
-Cache manages the states of the cache lines by receive and send requests through bus. The Cache defined several interfaces for other components to communicate with it.
+P0 READ 0
+P1 READ 0
+P2 READ 0
+P3 READ 0
+
+150 nops
+
+P0 WRITE 0
+P1 nops
+P2 nops
+P3 nops
+
+P0 nops
+P1 READ 0
+P2 READ 0
+P3 READ 0
+
+P2 WRITE 0
 ```
-class cache_if : public virtual sc_interface {
-    public:
-    virtual int cpu_read(uint64_t addr) = 0;
 
-    virtual int cpu_write(uint64_t addr) = 0;
+The result is:
+| Manager | Reads | RHit | RMiss | Writes | WHit | WMiss | Hitrate   | MAccessTime | WaitBus  |
+|---------|-------|------|-------|--------|------|-------|-----------|-------------|----------|
+| 0       | 1     | 0    | 1     | 1      | 1    | 0     | 50.000000 | 1           | 1.500000 |
+| 1       | 2     | 0    | 2     | 0      | 0    | 0     | 0.000000  | 1           | 3.500000 |
+| 2       | 2     | 0    | 2     | 1      | 1    | 0     | 33.333333 | 1           | 2.333333 |
+| 3       | 2     | 0    | 2     | 0      | 0    | 0     | 0.000000  | 1           | 2.000000 |
 
-    virtual int state_transition(request req) = 0;
+Latency: 567 ns
 
-    virtual int ack() = 0;
+Initially, all cache lines are set to a shared status. Following this, cache 0 successfully writes, transitioning to a modified state, which causes the states of the other caches to become invalid. 
+Subsequently, when the remaining three caches attempt to read the data, they experience read misses. However, they are able to fetch the data from cache 0, which is in the modified state. This action shifts the three caches into shared states, while the cache 0, previously modified, moves to an owned state.
+Finally, a cache in the shared state successfully performs a write operation, triggering the invalidation of all other cache lines, including the one in the owned state.
 
-    virtual int finish_mem() = 0;
+### Experienments
+##### Performance Evaluation with MOESI Protocol
+###### Processor = 1
+1. fft_1024
 
-    virtual std::vector<request> get_requests() = 0;
-};
-```
-I will explain the Cache implementaion details in a read & write lifecycle order.
-###### Read
-The cpu uses cpu_read to drive the cache read data from the cache line based on the address. When the cache gets a read hit or a read miss, the cache will broadcast the event with all the nessary infomration, and wait the request to be served. After the 
+| RHit   | RMiss | WHit  | WMiss | Hitrate  | MAccessTime | WaitBus  |
+|--------|-------|-------|-------|----------|-------------|----------|
+| 503437 | 2982  | 152997| 994   | 99.39795 | 4426        | 1.000226 |
 
-The cache will check the ack_ok flag to see if the bus already processed its request. The bus will use the ack() interface to tell the CPU the request is sent. The bus sent the ack at the negative edge, and the CPU checks it at the positive edge, this synchronization will ensure that all the other caches already notice the broadcast when the cache knows the ack.
-###### Write
+Total access time: 4426 ns
+Average bus time: 1.000226 ns
+Simulation time latency: 1.768299 ms
+Memory access rate: 0.002503 accesses/ns
 
-###### States Transition
-The transition between two states, from invalid to valid and from valid to invalid, plays a crucial role in maintaining the accuracy of simulations. Understanding the timing of these transitions is essential for the system's correctness.
-* Transition from Invalid to Valid 
-A cache transitions from invalid to valid under two circumstances, both of which ensure it reflects the latest data in memory.
-    * Read-Allocate
-    This occurs when a cache misses on a read operation and must fetch new data from memory. The cache is considered valid after it receives acknowledgment (ack) from the bus that its request has been processed, but before it actually receives the data from memory.
+2. matrix_vector_8_5000
 
-    * write-allocate & write-through
-    During a write operation, the cache marks the data as valid with similar timing to read-allocate: after receiving the ack but before the memory responds. This applies to burst write requests (comprising write hit and write-through or write miss, write allocate, and write-through). The burst request prevents later-served caches write from interrupting the memory access. 
-    
-    The detailed reason behind these specific timing is in the write race analysis section.
-* Valid -> Invalid
-The invalidation process is happened at the negative edge when there is need to invalidate. The bus will call the the state_transition function defined by the cache_if to invalidate the cache line except for the sender, and the cache doesn't have actions at the negative edge, so it avoids the conflicts.
-###### Write race analysis
-When the cache initiates a write request, it must group the **memory access requests** with **broadcast requests** in a single burst request. While a cache is awaiting a response from the memory, there's a chance it may receive a notification that the cache line it is waiting for has been invalidated, indicating that the memory location has been overwritten by other caches. This process is regulated through sequential memory execution, where the memory serves all requests in a First-In, First-Out (FIFO) order. Therefore, a cache that attempts to write to the memory and occupies the bus later has the capability to overwrite the value at the same location for all previous write accesses. Since this cache occupies the bus later, it holds the final authority to invalidate other caches and maintain its validity. Grouping requests into a single burst request is crucial to prevent the sequencing of memory access requests from overlapping, otherwise, if an early write operation is announced to other caches but executed later, it could mistakenly overwrite a newer write operation from other caches.
+| RHit   | RMiss | WHit  | WMiss | Hitrate  | MAccessTime | WaitBus  |
+|--------|-------|-------|-------|----------|-------------|----------|
+| 620045 | 20003 | 80020 | 12    | 97.22045 | 20025       | 1.000050 |
 
-##### Bus
+Total access time: 20025 ns
+Average bus time: 1.000050 ns
+Simulation time latency: 3.462698 ms
+Memory access rate: 0.005783 accesses/ns
 
-##### Memory
-The memory has a queue contains the requests from the cache.
-```
-typedef std::vector<request_id> bus_requests;
-```
-The memory processes the requests sequentially one by one, and one request needs 100 cycles to finish. The execution order matters because it reflects the serving order of the bus, the execution order must matches the order that the write request is processed by the bus, because the cache relies on this assumption.
-The bus will put the request into the memory buffer one by one at the negative clock edge, the memory will has thread that fetches the task from the buffer at the positive clock edge and there is no ruuning task.
+3. matrix_mul_50_50
+
+| RHit   | RMiss | WHit  | WMiss | Hitrate  | MAccessTime | WaitBus  |
+|--------|-------|-------|-------|----------|-------------|----------|
+| 1631711| 939   | 255148| 2     | 99.95015 | 941         | 1.001063 |
+
+Total access time: 941 ns
+Average bus time: 1.001063 ns
+Simulation time latency: 3.870644 ms
+Memory access rate: 0.000243 accesses/ns
 
 
-### Experiments
-##### Performance Evalution with Valid/Invalid Memory Model 
-##### Observing Cache Hit Rates with Snoop Enabled and Disabled.
-##### Assessing the Impact of Enabling vs. Disabling Memory Priority.
-##### Evaluating Performance with Multi-Channel Memory Configuration.
+###### Processor = 4
 
+1. fft_1024
+
+| RHit   | RMiss | WHit  | WMiss | Hitrate  | MAccessTime | WaitBus  |
+|--------|-------|-------|-------|----------|-------------|----------|
+| 128090 | 861   | 39427 | 138   | 99.40718 | 757         | 1.017419 |
+| 128158 | 913   | 39689 | 248   | 99.31305 | 860         | 1.019398 |
+| 128088 | 920   | 39654 | 241   | 99.31262 | 876         | 1.039386 |
+| 128136 | 895   | 39662 | 244   | 99.32578 | 838         | 1.039202 |
+
+Total access time: 3331 ns
+Average bus time: 1.02885125 ns
+Simulation time latency: 0.427177 ms
+Memory access rate: 0.007798 accesses/ns
+
+2. matrix_vector_8_5000
+
+| RHit   | RMiss | WHit  | WMiss | Hitrate  | MAccessTime | WaitBus  |
+|--------|-------|-------|-------|----------|-------------|----------|
+| 155009 | 5003  | 20004 | 4     | 97.21864 | 5008        | 1.048313 |
+| 145665 | 14347 | 19673 | 336   | 91.84373 | 4812        | 1.024641 |
+| 155008 | 5004  | 10466 | 9543  | 91.91928 | 4812        | 1.018655 |
+| 155009 | 5003  | 20004 | 4     | 97.21864 | 5008        | 1.056099 |
+
+Total access time: 19640 ns
+Average bus time: 1.036927 ns
+Simulation time latency: 0.866288 ms
+Memory access rate: 0.022671 accesses/ns
+
+3. matrix_mul_50_50
+
+| RHit   | RMiss | WHit  | WMiss | Hitrate  | MAccessTime | WaitBus  |
+|--------|-------|-------|-------|----------|-------------|----------|
+| 424012 | 477   | 66337 | 2     | 99.90241 | 477         | 1.002083 |
+| 391371 | 465   | 61234 | 2     | 99.89693 | 464         | 1.010684 |
+| 424012 | 477   | 66337 | 2     | 99.90241 | 476         | 1.006250 |
+| 391371 | 465   | 61234 | 2     | 99.89693 | 466         | 1.004283 |
+
+Total access time: 1883 ns
+Average bus time: 1.005825 ns
+Simulation time latency: 1.029838 ms
+Memory access rate: 0.001828 accesses/ns
+
+##### Processor = 8
+
+1. fft_1024
+
+| RHit  | RMiss | WHit  | WMiss | Hitrate  | MAccessTime | WaitBus  |
+|-------|-------|-------|-------|----------|-------------|----------|
+| 65787 | 470   | 20518 | 68    | 99.38049 | 362         | 1.037356 |
+| 65859 | 530   | 20790 | 181   | 99.18613 | 473         | 1.119870 |
+| 65734 | 547   | 20714 | 183   | 99.16263 | 469         | 1.148494 |
+| 65836 | 547   | 20778 | 191   | 99.15514 | 464         | 1.167170 |
+| 65785 | 548   | 20740 | 192   | 99.15201 | 469         | 1.128413 |
+| 65791 | 527   | 20747 | 175   | 99.19532 | 455         | 1.170576 |
+| 65832 | 551   | 20781 | 182   | 99.16081 | 449         | 1.125259 |
+| 65762 | 513   | 20719 | 171   | 99.21528 | 449         | 1.144605 |
+
+Total access time: 3590 ns
+Average bus time: 1.130218 ns
+Simulation time latency: 0.223187 ms
+Memory access rate: 0.016085 accesses/ns
+
+2. matrix_vector_8_5000
+
+| RHit  | RMiss | WHit  | WMiss | Hitrate  | MAccessTime | WaitBus  |
+|-------|-------|-------|-------|----------|-------------|----------|
+| 76764 | 3242  | 7374  | 2632  | 93.47420 | 2526        | 1.093862 |
+| 76773 | 3233  | 7151  | 2864  | 93.22714 | 2521        | 1.136350 |
+| 75392 | 4614  | 6344  | 3675  | 90.79256 | 2707        | 1.131123 |
+| 75323 | 4683  | 6245  | 3784  | 90.59588 | 2463        | 1.151311 |
+| 75356 | 4650  | 6238  | 3814  | 90.60161 | 2453        | 1.174125 |
+| 75620 | 4386  | 6292  | 3799  | 90.91535 | 2457        | 1.192050 |
+| 76741 | 3265  | 7615  | 2389  | 93.71848 | 2522        | 1.185982 |
+| 76951 | 3055  | 7392  | 2627  | 93.68842 | 2517        | 1.214401 |
+
+Total access time: 20166 ns
+Average bus time: 1.159901 ns
+Simulation time latency: 0.469789 ms
+Memory access rate: 0.042926 accesses/ns
+
+3. mult_50_50
+
+| RHit   | RMiss | WHit  | WMiss | Hitrate  | MAccessTime | WaitBus  |
+|--------|-------|-------|-------|----------|-------------|----------|
+| 228170 | 401   | 35719 | 2     | 99.84752 | 401         | 1.024752 |
+| 195529 | 389   | 30616 | 2     | 99.82740 | 390         | 1.028133 |
+| 228168 | 403   | 35719 | 2     | 99.84676 | 402         | 1.029557 |
+| 195529 | 389   | 30616 | 2     | 99.82740 | 389         | 1.035714 |
+| 195529 | 389   | 30616 | 2     | 99.82740 | 390         | 1.035806 |
+| 195529 | 389   | 30616 | 2     | 99.82740 | 389         | 1.035714 |
+| 195529 | 389   | 30616 | 2     | 99.82740 | 390         | 1.033248 |
+| 195529 | 389   | 30616 | 2     | 99.82740 | 391         | 1.033248 |
+
+Total access time: 3142 ns
+Average bus time: 1.032022 ns
+Simulation time latency: 0.569209 ms
+Memory access rate: 0.005520 accesses/ns
+
+1. The performance of p1 has the same results of assignment 1 because p1 operates exclusively within the modified or exclusive states, avoiding the shared or owned states. This behavior aligns with the write-back policy (modified is equal to the dirty state), where data updates to the memory occur only during LRU (Least Recently Used) eviction events.
+2. The MOESI protocol significantly outperforms the valid-invalid protocol in terms of latency. This is due to data-to-data transfers, where a read miss can retrieve data from other caches. This aspect is one of the key sources of performance enhancement with MOESI. 
+3. The MOESI protocol continues to encounter issues with false sharing. A notable example is the 8_5000 test, where the involvement of 8 cores significantly impacts the hit rate negatively. Upon examining the addresses, it becomes evident that caches frequently write to the same cache lines, leading to numerous invalidations.
+4. As the number of processors increases, the hit rate tends to drop. One reason is the increase in write probe invalidations. Additionally, with a greater number of processors, the chances that several caches will contain duplicates of the same data go up. To keep these caches coherent, more invalidation messages are necessary. Furthermore, the probability of false sharing increases alongside the processor numbers. With an increasing number of processors, both spatial and temporal locality are impacted, as cache lines might access disparate data sets, potentially leading to the invalidation of the states of other caches. 
+5. Minimal bus contention implies that cache operations can be executed promptly. However, the data also indicates that as the number of processors grows, the average time spent on bus contention tends to increase, because more caches will access memory or send cache-to-cache data during the same period of time.
+6. The memory access rate has risen due to a greater number of caches requesting data simultaneously within the same period.
